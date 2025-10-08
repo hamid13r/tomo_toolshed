@@ -83,7 +83,15 @@ When `--n-tilts > 0`:
 - Sets remaining tilts to `False`
 - **Note**: Views not in taSolution.log are always set to `False`
 
-### 3. All True Mode
+### 3. Dose-based Selection
+When `--n-tilts > 0`:
+- Sorts tilts by dose values from XML
+- Sets the N lowest-dose tilts to `True`
+- Sets remaining tilts to `False`
+- **Note**: Views not in taSolution.log are always set to `False`
+
+
+### 4. All True Mode
 When `--all-true`:
 - Sets all `UseTilt` values to `True`
 - Useful for testing or resetting configurations
