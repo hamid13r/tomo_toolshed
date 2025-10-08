@@ -38,7 +38,8 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts, max
     for xml_file in xml_files:
         backup_path = os.path.join(backup_dir, os.path.basename(xml_file))
         if os.path.exists(backup_path):
-            click.echo(f"Backup for {xml_file} already exists, skipping backup.")
+            click.echo(f"Backup for {xml_file} already exists, the code will stop to avoid overriding old backups with modified files.")
+            return
         else:
             shutil.copy(xml_file, backup_dir)
         # Read corresponding taSolution.log

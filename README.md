@@ -7,15 +7,16 @@ A Python utility for processing XML files in cryo-electron tomography workflows,
 This tool processes XML files and updates their `UseTilt` values based on data from corresponding `taSolution.log` files. It's particularly useful for:
 
 - Removing skipped views from tilt series based on etomo alignment logs that are created in fine-alignment step
-- Setting specific numbers of tilts to keep based on dose values, lowest accumulated doses are also the lowest tilts
-- Setting all tilts to True for testing purposes or just going back to default
+- Setting specific numbers of views to keep based on dose values, lowest accumulated doses are also the lowest tilts
+- Setting all views to True for testing purposes or just going back to default
 - Batch processing multiple XML files with automatic backups
 
 ## Features
 
-- **Automatic backup creation** - Safely backs up original XML files before modification
-- **Log-based filtering** - Uses `taSolution.log` files to determine which views to keep
-- **Dose-based selection** - Option to keep only the N lowest-dose tilts
+- **Automatic backup creation** - Safely backs up original XML files before modification, the backup directory needs to be new to avoid overriding original backups
+- **etomo-based filtering** - Uses `taSolution.log` files to determine which views to keep
+- **Dose-based selection** - Option to keep only the N lowest-dose views
+- **Tilt-based selection** - Option to keep only until a certain amount of tilt from the first view
 - **Batch processing** - Process multiple XML files with customizable patterns
 - **Safety first** - Never overwrites existing backups
 
@@ -65,7 +66,8 @@ python remove_skipped_view.py ./ --n-tilts 20
 | `--backup-dir` | `backup_xml` | Directory to store XML backups |
 | `--tiltstack-dir` | `tiltstack` | Base directory containing tiltstack logs |
 | `--all-true` | False | Set all UseTilt values to True (ignores log files) |
-| `--n-tilts` | 0 | Keep N lowest-dose tilts, set others to False |
+| `--n-tilts` | 0 | Keep N lowest-dose views, set others to False |
+| `--max-tilt`| 0 | Keep views that are smaller than this value
 
 ## Processing Modes
 
@@ -134,10 +136,10 @@ python remove_skipped_view.py ./ --all-true
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is released under a permissive open-source license. You are free to use, modify, and distribute it for any purpose. See the LICENSE file for more information.
 
 ## Acknowledgments
 
-- Designed for WARP cryo-electron tomography workflows
-- Compatible with standard tilt series processing pipelines
+- Designed for [WARP2.0](https://github.com/warpem/warp) cryo-electron tomography workflows 
 - Built with pandas, click, and lxml
+- Thanks to Alister Burt and Dimitry Tegunov for the support 
