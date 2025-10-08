@@ -6,9 +6,9 @@ A Python utility for processing XML files in cryo-electron tomography workflows,
 
 This tool processes XML files and updates their `UseTilt` values based on data from corresponding `taSolution.log` files. It's particularly useful for:
 
-- Removing skipped views from tilt series based on WARP alignment logs
-- Setting specific numbers of tilts to keep based on dose values
-- Setting all tilts to True for testing purposes
+- Removing skipped views from tilt series based on etomo alignment logs that are created in fine-alignment step
+- Setting specific numbers of tilts to keep based on dose values, lowest accumulated doses are also the lowest tilts
+- Setting all tilts to True for testing purposes or just going back to default
 - Batch processing multiple XML files with automatic backups
 
 ## Features

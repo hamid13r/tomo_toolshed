@@ -13,7 +13,8 @@ import click
 @click.option('--tiltstack-dir', default='tiltstack', help='Base directory for tiltstack logs')
 @click.option('--all-true', is_flag=True, default=False, help='Set all UseTilt values to True')
 @click.option('--n-tilts', default=0, help='Number of tilts by dose to keep and discard the rest')
-def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts):
+@click.option('--max-tilt', default=0, help='Maximum tilt angle (calculated from the minimum dose) to keep, others set to False')
+def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts, max_tilt):
     """Process XML files and update UseTilt values based on taSolution.log.
     Args:
         xml_dir (str): Directory containing XML files.
@@ -40,7 +41,7 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts):
             click.echo(f"Backup for {xml_file} already exists, skipping backup.")
         else:
             shutil.copy(xml_file, backup_dir)
-
+        # Read corresponding taSolution.log
         log_path = os.path.join(tiltstack_dir, os.path.splitext(os.path.basename(xml_file))[0], "taSolution.log")
         if not os.path.exists(log_path):
             click.echo(f"Log file {log_path} not found, skipping {xml_file}.")
@@ -57,6 +58,7 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts):
         data_str = ''.join(lines[view_line_idx:])
         df = pd.read_csv(io.StringIO(data_str), delim_whitespace=True)
         views_in_log = set(df['view'].unique())
+        tilts_in_log = df['tilt'].tolist()
 
         tree = ET.parse(xml_file)
         root = tree.getroot()
@@ -69,7 +71,7 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts):
                 updated_values = ['True'] * len(current_values)
                 changes_made = sum(1 for val in current_values if val != 'True')
             #if n_tilts is 0, set views in log to True, others to False
-            elif n_tilts == 0:
+            elif n_tilts == 0 and max_tilt == 0:
                 for i, value in enumerate(current_values):
                     view_number = i + 1
                     if view_number in views_in_log:
@@ -99,6 +101,24 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts):
                         updated_values[i] = 'False' 
                         if value == 'True':
                             changes_made += 1
+            elif max_tilt > 0:
+                #first find the minimum dose tilt
+                dose_elems = root.findall('Dose')
+                dose_values = [float(elem.text.strip()) for elem in dose_elems]
+                min_dose_idx = dose_values.index(min(dose_values))
+                min_dose_tilt = tilts_in_log[min_dose_idx]
+                #calculate the maximum tilt to keep
+                max_tilt_to_keep = abs(min_dose_tilt) + max_tilt
+                for i, value in enumerate(current_values):
+                    view_number = i + 1
+                    tilt_angle = tilts_in_log[i]
+                    if view_number in views_in_log and abs(tilt_angle) <= max_tilt_to_keep:
+                        updated_values[i] = 'True'
+                    else:
+                        updated_values[i] = 'False'
+                        if value == 'True':
+                            changes_made += 1
+
 
             use_tilt_elem.text = '\n'.join(updated_values)
             click.echo(f"{xml_file}: {changes_made} changes made to UseTilt.")
