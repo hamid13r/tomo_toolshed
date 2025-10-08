@@ -11,6 +11,19 @@ This tool processes XML files and updates their `UseTilt` values based on data f
 - Setting all views to True for testing purposes or just going back to default
 - Batch processing multiple XML files with automatic backups
 
+This is needed when there are views that need to be excluded from the tomogram:
+![Skipping a view with shifted beam](docs/etomo-skip.png)
+
+*Figure: Example of the view that need to be skipped.*
+
+By turning the UseTilt to False for that view, the shadow goes away:
+
+![The tomogram before and after editing the xml file](docs/before-after.png)
+
+*Figure: Result after removing skipped views using this code, the UseTilt section of the xml file is also shown.*
+
+
+
 ## Features
 
 - **Automatic backup creation** - Safely backs up original XML files before modification, the backup directory needs to be new to avoid overriding original backups
