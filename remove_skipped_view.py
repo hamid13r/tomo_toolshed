@@ -7,8 +7,8 @@ import io
 import click
 
 @click.command()
-@click.argument('xml-dir', default='./', help='Directory containing XML files')
-@click.option('xml-pattern', default='*.xml', help='Pattern to match XML files')
+@click.option('--xml-dir', default='./', help='Directory containing XML files')
+@click.option('--xml-pattern', default='*.xml', help='Pattern to match XML files')
 @click.option('--backup-dir', default='backup_xml', help='Directory to store XML backups')
 @click.option('--tiltstack-dir', default='tiltstack', help='Base directory for tiltstack logs')
 @click.option('--all-true', is_flag=True, default=False, help='Set all UseTilt values to True')

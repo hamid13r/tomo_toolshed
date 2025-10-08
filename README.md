@@ -61,7 +61,7 @@ python remove_skipped_view.py ./ --n-tilts 20
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `xml-dir` | `./` | Directory containing XML files to process |
+| `--xml-dir` | `./` | Directory containing XML files to process |
 | `--xml-pattern` | `*.xml` | Glob pattern to match XML files |
 | `--backup-dir` | `backup_xml` | Directory to store XML backups |
 | `--tiltstack-dir` | `tiltstack` | Base directory containing tiltstack logs |
