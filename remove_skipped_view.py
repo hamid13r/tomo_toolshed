@@ -63,38 +63,40 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts):
         use_tilt_elem = root.find('UseTilt')
         if use_tilt_elem is not None:
             current_values = [val.strip() for val in use_tilt_elem.text.split('\n') if val.strip()]
-            updated_values = []
+            updated_values = ['False'] * len(current_values)
             changes_made = 0
             if all_true:
                 updated_values = ['True'] * len(current_values)
                 changes_made = sum(1 for val in current_values if val != 'True')
+            #if n_tilts is 0, set views in log to True, others to False
             elif n_tilts == 0:
                 for i, value in enumerate(current_values):
                     view_number = i + 1
                     if view_number in views_in_log:
-                        updated_values.append('True')
+                        updated_values[i] = 'True'
                     else:
-                        updated_values.append('False')
+                        updated_values[i] = 'False'
                         if value == 'True':
                             changes_made += 1
+            #if n_tilts > 0, first keep the n_tilts lowest dose views as True 
             elif n_tilts > 0:
                 # Read Dose values from XML and sort them
                 dose_elems = root.findall('Dose')
                 dose_values = [float(elem.text.strip()) for elem in dose_elems]
                 sorted_indices = sorted(range(len(dose_values)), key=lambda i: dose_values[i])
 
-                updated_values = ['False'] * len(current_values)
                 for idx in sorted_indices[:n_tilts]:
                     updated_values[idx] = 'True'
                 for idx in sorted_indices[n_tilts:]:
                     updated_values[idx] = 'False'
                 changes_made = sum(1 for i, val in enumerate(current_values) if updated_values[i] != val)
+                # Now ensure views not in log are False
                 for i, value in enumerate(current_values):
                     view_number = i + 1
                     if view_number in views_in_log:
-                        updated_values.append('True')
+                        updated_values[i] = 'True'
                     else:
-                        updated_values.append('False')
+                        updated_values[i] = 'False' 
                         if value == 'True':
                             changes_made += 1
 
