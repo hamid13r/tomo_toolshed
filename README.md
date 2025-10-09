@@ -1,4 +1,4 @@
-# Warp Remove Skipped Views
+# Removing Skipped Views in etomo from WarpTools
 
 A Python utility for processing XML files in cryo-electron tomography workflows, specifically designed to update `UseTilt` values based on tilt alignment solutions from WARP.
 
@@ -109,34 +109,18 @@ When `--all-true`:
 
 ## Expected Directory Structure
 
+
 ```
-project_directory/
+warp_tiltseries/
 ├── *.xml                          # XML files to process
 ├── backup_xml/                    # Backup directory (auto-created)
-└── tiltstack/                     # Tiltstack logs directory
+└── tiltstack/                     # Tiltstack made by warp
     └── [xml_basename]/
-        └── taSolution.log          # Log file for each XML
+        └── taSolution.log          # each TS done in etomo gets a taSolution.log 
 ```
 
 ## Example Workflows
 
-### Standard WARP Processing
-Remove views that failed alignment:
-```bash
-python remove_skipped_view.py ./ --xml-pattern "TS_*.xml"
-```
-
-### Low-dose Processing
-Keep only the 15 lowest-dose tilts:
-```bash
-python remove_skipped_view.py ./ --n-tilts 15
-```
-
-### Reset All Tilts
-Set all tilts to True for reprocessing:
-```bash
-python remove_skipped_view.py ./ --all-true
-```
 
 ## Safety Features
 
@@ -145,13 +129,6 @@ python remove_skipped_view.py ./ --all-true
 - **Error handling**: Gracefully handles missing files or invalid data
 - **Change tracking**: Reports number of modifications made
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/new-feature`)
-3. Commit your changes (`git commit -m 'Add new feature'`)
-4. Push to the branch (`git push origin feature/new-feature`)
-5. Open a Pull Request
 
 ## License
 
