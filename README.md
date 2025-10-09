@@ -49,7 +49,7 @@ pip install pandas click lxml
 ```bash
 git clone https://github.com/yourusername/warp_remove_skipped_views.git
 cd warp_remove_skipped_views
-pip install -r requirements.txt
+pip install pandas click lxml
 ```
 
 ## Usage
@@ -57,17 +57,15 @@ pip install -r requirements.txt
 ### Basic Commands
 
 ```bash
-# Process all XML files in current directory
-python remove_skipped_view.py ./
 
-# Process with custom pattern and directories
-python remove_skipped_view.py ./ --xml-pattern "*.xml" --backup-dir backup_xml --tiltstack-dir tiltstack
+# Process with custom pattern and directories, this would work in the warp_tiltseries directory in the default WarpTools structure
+python remove_skipped_view.py --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --tiltstack-dir tiltstack
 
 # Set all UseTilt values to True
-python remove_skipped_view.py ./ --all-true
+python remove_skipped_view.py  --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --all-true
 
 # Keep only 20 lowest-dose tilts
-python remove_skipped_view.py ./ --n-tilts 20
+python remove_skipped_view.py --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --n-tilts 20
 ```
 
 ### Command Line Options
@@ -80,7 +78,7 @@ python remove_skipped_view.py ./ --n-tilts 20
 | `--tiltstack-dir` | `tiltstack` | Base directory containing tiltstack logs |
 | `--all-true` | False | Set all UseTilt values to True (ignores log files) |
 | `--n-tilts` | 0 | Keep N lowest-dose views, set others to False |
-| `--max-tilt`| 0 | Keep views that are smaller than this value
+| `--max-tilt`| 0 | Keep views up to this tilt from the lowest tilt
 
 ## Processing Modes
 
