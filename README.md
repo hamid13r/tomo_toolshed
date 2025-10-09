@@ -119,17 +119,6 @@ warp_tiltseries/
         └── taSolution.log          # each TS done in etomo gets a taSolution.log 
 ```
 
-## Example Workflows
-
-
-## Safety Features
-
-- **Backup protection**: Won't overwrite existing backup files
-- **Validation**: Checks for required log files before processing
-- **Error handling**: Gracefully handles missing files or invalid data
-- **Change tracking**: Reports number of modifications made
-
-
 ## License
 
 This project is released under a permissive open-source license. You are free to use, modify, and distribute it for any purpose. See the LICENSE file for more information.
