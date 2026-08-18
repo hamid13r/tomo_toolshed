@@ -98,6 +98,27 @@ def test_bbox_center():
         assert bb[0].start <= zc < bb[0].stop
 
 
+def test_filter_by_value():
+    # Two islands; give island A a peak of 100 and island B a peak of 5.
+    vol = np.zeros((6, 6, 6), dtype=np.uint8)
+    vol[1:3, 1:3, 1:3] = 1   # island A
+    vol[4:6, 4:6, 4:6] = 1   # island B
+    labels, n = labeling.label_islands(vol)
+    values = np.zeros_like(vol, dtype=np.int16)
+    values[labels == 1] = 100
+    values[labels == 2] = 5
+    maxima = labeling.island_value_maxima(labels, values, n)
+    assert sorted(int(m) for m in maxima[1:]) == [5, 100]
+    # threshold 10 -> only the peak-100 island survives.
+    keep = labeling.filter_by_value(labels, values, n, threshold=10)
+    kept_maxima = sorted(int(maxima[i]) for i in keep)
+    assert kept_maxima == [100]
+    # threshold 0 -> both survive (both have voxels above 0).
+    assert len(labeling.filter_by_value(labels, values, n, threshold=0)) == 2
+    # threshold 100 -> strictly-above means the 100-island is dropped too.
+    assert labeling.filter_by_value(labels, values, n, threshold=100) == []
+
+
 def test_connectivity_validation():
     with pytest.raises(ValueError):
         labeling.label_islands(make_volume(), connectivity=7)

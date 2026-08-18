@@ -28,6 +28,13 @@ from . import labeling
 @click.option("--z-max", type=int, default=None, help="Initial Z-range upper bound (inclusive).")
 @click.option("--min-size", type=int, default=0, help="Initial minimum island size in voxels.")
 @click.option(
+    "--threshold",
+    type=click.IntRange(0, 128),
+    default=None,
+    help="Confidence threshold (0-128): islands with no voxel value above it are "
+    "removed. Prompted interactively if omitted.",
+)
+@click.option(
     "--blur",
     type=float,
     default=0.0,
@@ -44,7 +51,7 @@ from . import labeling
     default=False,
     help="Initial overlay mode (default: all-green).",
 )
-def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, blur, connectivity, color_by_number):
+def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, threshold, blur, connectivity, color_by_number):
     """Curate a 3D SEGMENTATION over a TOMOGRAM and export to OUTPUT_DIR."""
     connectivity = int(connectivity)
 
@@ -55,6 +62,12 @@ def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, blur, conne
     if os.path.exists(out_path):
         click.echo(f"[skip] Output already exists: {out_path}")
         sys.exit(0)
+
+    # Ask for the confidence threshold up front (skip the prompt if supplied).
+    if threshold is None:
+        threshold = click.prompt(
+            "Segmentation confidence threshold (0-128)", type=click.IntRange(0, 128)
+        )
 
     click.echo(f"Reading tomogram:     {tomogram}")
     tomo = mrc_io.read_mrc(tomogram)
@@ -89,6 +102,16 @@ def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, blur, conne
     # Label.
     labels, n = labeling.label_islands(binary, connectivity=connectivity)
     click.echo(f"Labeled {n} islands (connectivity={connectivity}).")
+
+    # Confidence-threshold cull: keep only islands that contain at least one
+    # voxel whose segmentation value is above the threshold; drop the rest.
+    keep = labeling.filter_by_value(labels, seg, n, threshold)
+    labels, id_map = labeling.renumber(labels, keep)
+    n = len(id_map)
+    click.echo(
+        f"Threshold {threshold}: kept {n} islands with a voxel above it "
+        f"(removed the rest)."
+    )
 
     # Initial min-size filter (drop below threshold, relabel contiguous).
     if min_size > 0:

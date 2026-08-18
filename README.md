@@ -8,6 +8,12 @@ The segmentation is provided **directly as an input file** — the tool does *no
 re-threshold the tomogram. You give it a tomogram, a segmentation, and an output
 directory; you curate; it writes the cleaned mask.
 
+The segmentation may carry per-voxel **confidence scores** (e.g. EasyMode stores
+`int8` values `0–127`). At load, the tool asks for a **confidence threshold
+(0–128)**, splits the segmentation into islands (connected components of
+`seg > 0`), and **removes any island that has no voxel above the threshold**
+before opening the GUI. Pass `--threshold N` to skip the prompt.
+
 ## Install
 
 ### With micromamba (recommended)
@@ -68,6 +74,7 @@ message and exits `0` *without* opening the GUI. Delete the file to re-curate.
 |---|---|---|
 | `--z-min INT` | full range | Initial Z-range lower bound (inclusive). |
 | `--z-max INT` | full range | Initial Z-range upper bound (inclusive). |
+| `--threshold INT` | *(prompted)* | Confidence threshold `0–128`. Islands with **no voxel above** this value are removed at load. If omitted, the tool prompts for it interactively. |
 | `--min-size INT` | `0` | Initial minimum island size in voxels (dust removal). |
 | `--blur FLOAT` | `0.0` | Gaussian blur sigma applied to the tomogram for display (3D; `0` = none). Does not affect the segmentation. |
 | `--connectivity {6,18,26}` | `26` | Connected-components connectivity. |

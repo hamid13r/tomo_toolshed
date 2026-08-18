@@ -94,6 +94,34 @@ def filter_by_size(sizes: np.ndarray, min_size: int, ids: Iterable[int] = None) 
     return [int(i) for i in ids if sizes[i] >= min_size]
 
 
+def island_value_maxima(labels: np.ndarray, values: np.ndarray, n: int) -> np.ndarray:
+    """Return the peak ``values`` within each island, indexed by label id.
+
+    ``out[i]`` is the maximum of ``values`` over the voxels of island ``i``
+    (``out[0]`` is unused background). Used to filter islands by the highest
+    confidence score they contain.
+    """
+    out = np.zeros(n + 1, dtype=float)
+    if n <= 0:
+        return out
+    idx = np.arange(1, n + 1)
+    maxima = ndi.maximum(np.asarray(values), np.asarray(labels), index=idx)
+    out[1:] = np.nan_to_num(np.asarray(maxima, dtype=float))
+    return out
+
+
+def filter_by_value(
+    labels: np.ndarray, values: np.ndarray, n: int, threshold: float
+) -> List[int]:
+    """Return island ids that contain at least one voxel with ``value > threshold``.
+
+    Islands whose peak value is ``<= threshold`` are dropped (they have "no
+    voxels above the threshold").
+    """
+    maxima = island_value_maxima(labels, values, n)
+    return [int(i) for i in range(1, n + 1) if maxima[i] > threshold]
+
+
 def renumber(
     labels: np.ndarray, keep_ids: Iterable[int]
 ) -> Tuple[np.ndarray, Dict[int, int]]:
