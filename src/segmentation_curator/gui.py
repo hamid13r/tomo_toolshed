@@ -55,6 +55,9 @@ class SegmentationCuratorGUI:
         self.color_mode = "number" if color_by_number else "green"
         self.highlight_id: Optional[int] = None
         self.show_labels = True
+        # Display contrast window (over the uint8-normalized tomogram, 0..255).
+        self.vmin = 0
+        self.vmax = 255
 
         # Derived tables.
         self.bboxes, self.sizes = labeling.compute_bboxes_and_sizes(self.labels, self.n)
@@ -89,7 +92,8 @@ class SegmentationCuratorGUI:
 
         # Base + overlay + highlight images.
         self._artists["z_base"] = self.ax_z.imshow(
-            self.tomo[self.z_idx], cmap="gray", vmin=0, vmax=255, interpolation="nearest"
+            self.tomo[self.z_idx], cmap="gray", vmin=self.vmin, vmax=self.vmax,
+            interpolation="nearest",
         )
         self._artists["z_over"] = self.ax_z.imshow(
             np.zeros((self.ny, self.nx, 4)), interpolation="nearest"
@@ -97,15 +101,19 @@ class SegmentationCuratorGUI:
         self._artists["z_hi"] = self.ax_z.imshow(
             np.zeros((self.ny, self.nx, 4)), interpolation="nearest"
         )
+        # origin="lower" so the vertical Z axis increases upward, matching the
+        # vertical Z slider (dragging up -> higher Z shows higher in the image).
         self._artists["y_base"] = self.ax_y.imshow(
-            self.tomo[:, self.y_idx], cmap="gray", vmin=0, vmax=255,
-            interpolation="nearest", aspect="auto",
+            self.tomo[:, self.y_idx], cmap="gray", vmin=self.vmin, vmax=self.vmax,
+            interpolation="nearest", aspect="auto", origin="lower",
         )
         self._artists["y_over"] = self.ax_y.imshow(
-            np.zeros((self.nz, self.nx, 4)), interpolation="nearest", aspect="auto"
+            np.zeros((self.nz, self.nx, 4)), interpolation="nearest", aspect="auto",
+            origin="lower",
         )
         self._artists["y_hi"] = self.ax_y.imshow(
-            np.zeros((self.nz, self.nx, 4)), interpolation="nearest", aspect="auto"
+            np.zeros((self.nz, self.nx, 4)), interpolation="nearest", aspect="auto",
+            origin="lower",
         )
 
         # Crosshairs.
@@ -127,6 +135,15 @@ class SegmentationCuratorGUI:
         )
         self.s_z.on_changed(self._on_z_slider)
         self.s_y.on_changed(self._on_y_slider)
+
+        # Contrast sliders (display-only clim over the 0..255 tomogram).
+        self.fig.text(0.62, 0.375, "Contrast (display):", fontsize=9)
+        ax_cmin = self.fig.add_axes([0.72, 0.352, 0.20, 0.018])
+        self.s_cmin = self._Slider(ax_cmin, "min", 0, 255, valinit=self.vmin, valstep=1)
+        ax_cmax = self.fig.add_axes([0.72, 0.328, 0.20, 0.018])
+        self.s_cmax = self._Slider(ax_cmax, "max", 0, 255, valinit=self.vmax, valstep=1)
+        self.s_cmin.on_changed(self._on_contrast)
+        self.s_cmax.on_changed(self._on_contrast)
 
         # ---- Control panel (bottom) -------------------------------------
         def _ax(x, y, w, h):
@@ -257,21 +274,19 @@ class SegmentationCuratorGUI:
             hi = f"Island {self.highlight_id}: {hsize} vox"
         else:
             hi = "Island --: -- vox"
-        # Smallest currently selected island.
+        # Smallest and largest currently selected islands.
+        smallest = "Smallest: -- (-- vox)"
+        largest = "Largest: -- (-- vox)"
         if self.selected:
             sel = np.fromiter(self.selected, dtype=np.int64)
             sel = sel[(sel > 0) & (sel < len(self.sizes))]
             if sel.size:
                 ssizes = self.sizes[sel]
-                order = np.argmin(ssizes)
-                sm_id = int(sel[order])
-                sm_sz = int(ssizes[order])
-                smallest = f"Smallest: {sm_id} ({sm_sz} vox)"
-            else:
-                smallest = "Smallest: -- (-- vox)"
-        else:
-            smallest = "Smallest: -- (-- vox)"
-        self._info_text.set_text(f"{hi}    {smallest}")
+                sm = int(np.argmin(ssizes))
+                lg = int(np.argmax(ssizes))
+                smallest = f"Smallest: {int(sel[sm])} ({int(ssizes[sm])} vox)"
+                largest = f"Largest: {int(sel[lg])} ({int(ssizes[lg])} vox)"
+        self._info_text.set_text(f"{hi}    {smallest}    {largest}")
 
     def _refresh_status(self, msg: str = None):
         sel_vox = int(self.sizes[list(self.selected)].sum()) if self.selected else 0
@@ -317,6 +332,15 @@ class SegmentationCuratorGUI:
     def _on_y_slider(self, val):
         self.y_idx = int(val)
         self._full_refresh()
+
+    def _on_contrast(self, _val):
+        self.vmin = float(self.s_cmin.val)
+        self.vmax = float(self.s_cmax.val)
+        if self.vmax <= self.vmin:
+            self.vmax = self.vmin + 1  # keep a valid, non-degenerate window
+        self._artists["z_base"].set_clim(self.vmin, self.vmax)
+        self._artists["y_base"].set_clim(self.vmin, self.vmax)
+        self.fig.canvas.draw_idle()
 
     def _parse_int(self, textbox, default):
         try:

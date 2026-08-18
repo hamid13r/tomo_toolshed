@@ -28,6 +28,12 @@ from . import labeling
 @click.option("--z-max", type=int, default=None, help="Initial Z-range upper bound (inclusive).")
 @click.option("--min-size", type=int, default=0, help="Initial minimum island size in voxels.")
 @click.option(
+    "--blur",
+    type=float,
+    default=0.0,
+    help="Gaussian blur sigma applied to the tomogram for display (0 = none).",
+)
+@click.option(
     "--connectivity",
     type=click.Choice(["6", "18", "26"]),
     default="26",
@@ -38,7 +44,7 @@ from . import labeling
     default=False,
     help="Initial overlay mode (default: all-green).",
 )
-def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, connectivity, color_by_number):
+def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, blur, connectivity, color_by_number):
     """Curate a 3D SEGMENTATION over a TOMOGRAM and export to OUTPUT_DIR."""
     connectivity = int(connectivity)
 
@@ -59,6 +65,14 @@ def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, connectivit
         raise click.ClickException(
             f"Tomogram and segmentation shapes differ: {tomo.shape} vs {seg.shape}"
         )
+
+    # Optional Gaussian blur of the tomogram (display only; does not touch the
+    # segmentation). A 3D blur keeps both orthogonal views consistent.
+    if blur and blur > 0:
+        from scipy.ndimage import gaussian_filter
+
+        click.echo(f"Applying Gaussian blur to tomogram (sigma={blur}).")
+        tomo = gaussian_filter(tomo.astype(np.float32), sigma=blur)
 
     # Binarize the segmentation (it is the input directly -- do NOT threshold
     # the tomogram).

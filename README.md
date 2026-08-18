@@ -69,6 +69,7 @@ message and exits `0` *without* opening the GUI. Delete the file to re-curate.
 | `--z-min INT` | full range | Initial Z-range lower bound (inclusive). |
 | `--z-max INT` | full range | Initial Z-range upper bound (inclusive). |
 | `--min-size INT` | `0` | Initial minimum island size in voxels (dust removal). |
+| `--blur FLOAT` | `0.0` | Gaussian blur sigma applied to the tomogram for display (3D; `0` = none). Does not affect the segmentation. |
 | `--connectivity {6,18,26}` | `26` | Connected-components connectivity. |
 | `--color-by-number / --all-green` | `--all-green` | Initial overlay mode. |
 
@@ -84,8 +85,13 @@ message and exits `0` *without* opening the GUI. Delete the file to re-curate.
 | Close the window | Save the curated mask & quit |
 
 The left panel is the **Z view** (a Y–X plane at fixed Z); the right panel is
-the **Y view** (a Z–X plane at fixed Y). Cyan crosshairs mark the current
-position; overlay background voxels are **fully transparent**.
+the **Y view** (a Z–X plane at fixed Y, with Z increasing upward to match the
+vertical Z slider). Cyan crosshairs mark the current position; overlay
+background voxels are **fully transparent**.
+
+**Contrast:** two sliders (top-right, `min` / `max`) adjust the display contrast
+window over the grayscale tomogram live. This only changes how the tomogram is
+displayed — it never affects the segmentation or the exported mask.
 
 ## Buttons & boxes
 
@@ -102,8 +108,8 @@ position; overlay background voxels are **fully transparent**.
   distinct color. Toggling never changes the selection.
 - **Island ID + Go To** — center both views on that island and highlight it in
   **yellow**. The info line shows `Island {id}: {size} vox` for the highlighted
-  island and `Smallest: {id} ({size} vox)` for the current smallest selected
-  island — handy for jumping to dust.
+  island, plus `Smallest: {id} ({size} vox)` and `Largest: {id} ({size} vox)`
+  for the current smallest/largest selected islands — handy for jumping to dust.
 - **Toggle** — add/remove the Island-ID island from the selection (same as
   clicking it in a view).
 - **Renumber** — remap the selected islands to a contiguous `1..N`.
