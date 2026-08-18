@@ -1,6 +1,6 @@
 """Interactive matplotlib GUI for curating a labeled segmentation.
 
-``IslandCuratorGUI`` holds all mutable state on ``self`` (labels, sizes, bboxes,
+``SegmentationCuratorGUI`` holds all mutable state on ``self`` (labels, sizes, bboxes,
 selection, view indices, color mode, highlight id) so callbacks mutate instance
 attributes rather than globals/nonlocals. matplotlib is imported lazily at
 construction time so the rest of the package stays headless-importable.
@@ -19,7 +19,7 @@ from . import colormaps
 from . import labeling
 
 
-class IslandCuratorGUI:
+class SegmentationCuratorGUI:
     def __init__(
         self,
         tomogram: np.ndarray,
@@ -76,7 +76,7 @@ class IslandCuratorGUI:
     def _build_figure(self):
         plt = self._plt
         self.fig = plt.figure(figsize=(15, 9))
-        self.fig.canvas.manager.set_window_title("island-curator")
+        self.fig.canvas.manager.set_window_title("segmentation-curator")
 
         # Image axes.
         self.ax_z = self.fig.add_axes([0.05, 0.42, 0.40, 0.54])

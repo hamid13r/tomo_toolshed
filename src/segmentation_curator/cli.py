@@ -1,6 +1,6 @@
-"""Command-line entry point for island-curator.
+"""Command-line entry point for segmentation-curator.
 
-    island-curator TOMOGRAM SEGMENTATION OUTPUT_DIR [options]
+    segmentation-curator TOMOGRAM SEGMENTATION OUTPUT_DIR [options]
 
 Loads a tomogram + segmentation pair, labels the segmentation into connected
 "islands", launches the interactive curator GUI, and writes the curated binary
@@ -85,10 +85,10 @@ def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, connectivit
         click.echo(f"Applied initial min-size filter (>= {min_size} vox): {n} islands remain.")
 
     # Launch GUI (import lazily so headless tooling never imports matplotlib).
-    from .gui import IslandCuratorGUI
+    from .gui import SegmentationCuratorGUI
 
     click.echo("Launching curator GUI... (press 'q' to save & quit)")
-    gui = IslandCuratorGUI(
+    gui = SegmentationCuratorGUI(
         tomogram=tomo,
         labels=labels,
         n_islands=n,

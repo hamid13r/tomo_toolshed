@@ -1,4 +1,4 @@
-# island-curator
+# segmentation-curator
 
 Interactive CLI + matplotlib GUI to review and clean a 3D segmentation
 ("islands" = connected components) overlaid on a cryo-ET tomogram, then export a
@@ -20,13 +20,13 @@ Dependencies: `numpy`, `scipy`, `scikit-image`, `mrcfile`,
 ## Usage
 
 ```bash
-island-curator TOMOGRAM SEGMENTATION OUTPUT_DIR [options]
+segmentation-curator TOMOGRAM SEGMENTATION OUTPUT_DIR [options]
 ```
 
 Example (using the bundled example pair):
 
 ```bash
-island-curator \
+segmentation-curator \
   example/MIM019_2_lam1_ts_002.mrc \
   example/easymode_microtubule/MIM019_2_lam1_ts_002__microtubule.mrc \
   out/

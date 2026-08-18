@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from island_curator import labeling
+from segmentation_curator import labeling
 
 
 def make_volume():
