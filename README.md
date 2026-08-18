@@ -10,6 +10,30 @@ directory; you curate; it writes the cleaned mask.
 
 ## Install
 
+### With micromamba (recommended)
+
+Create the environment from `environment.yml`, then install the package into it:
+
+```bash
+micromamba create -f environment.yml -y
+micromamba activate segmentation-curator
+pip install -e .
+```
+
+Run the tests to confirm the install:
+
+```bash
+pytest
+```
+
+To update the environment later after editing `environment.yml`:
+
+```bash
+micromamba install -f environment.yml -y
+```
+
+### With plain pip
+
 ```bash
 pip install -e .
 ```
