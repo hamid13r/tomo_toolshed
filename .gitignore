@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# In-place backups written by --delete
+*.xml.bak
+*.tomostar.bak
+*.bak.[0-9]*

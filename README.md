@@ -28,8 +28,7 @@ By turning the UseTilt to False for that view, the shadow goes away:
 
 - **Automatic backup creation** - Safely backs up original XML files before modification, the backup directory needs to be new to avoid overriding original backups
 - **etomo-based filtering** - Uses `taSolution.log` files to determine which views to keep
-- **Dose-based selection** - Option to keep only the N lowest-dose views
-- **Tilt-based selection** - Option to keep only until a certain amount of tilt from the first view
+- **Tilt-based selection** - Option to keep only until a certain amount of tilt from the lowest-dose view
 - **Batch processing** - Process multiple XML files with customizable patterns
 - **Safety first** - Never overwrites existing backups
 
@@ -64,8 +63,8 @@ python remove_skipped_view.py --xml-dir ./ --xml-pattern "*.xml" --backup-dir ba
 # Set all UseTilt values to True
 python remove_skipped_view.py  --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --all-true
 
-# Keep only 20 lowest-dose tilts
-python remove_skipped_view.py --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --n-tilts 20
+# Keep only views within 40 degrees of the lowest-dose tilt
+python remove_skipped_view.py --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --max-tilt 40
 ```
 
 ### Command Line Options
@@ -76,48 +75,101 @@ python remove_skipped_view.py --xml-dir ./ --xml-pattern "*.xml" --backup-dir ba
 | `--xml-pattern` | `*.xml` | Glob pattern to match XML files |
 | `--backup-dir` | `backup_xml` | Directory to store XML backups |
 | `--tiltstack-dir` | `tiltstack` | Base directory containing tiltstack logs |
+| `--tomostar-dir` | `../tomostar` | Directory containing `.tomostar` files (used by `--delete`; resolved relative to the current working directory) |
 | `--all-true` | False | Set all UseTilt values to True (ignores log files) |
-| `--n-tilts` | 0 | Keep N lowest-dose views, set others to False |
-| `--max-tilt`| 0 | Keep views up to this tilt from the lowest tilt
+| `--max-tilt`| 0 | Keep views up to this tilt from the lowest tilt |
+| `--delete` | False | Physically remove the excluded tilts from both the XML and the matching `.tomostar` instead of setting `UseTilt=False` (see [Deletion mode](#deletion-mode)) |
+| `--dry-run` | False | Report what would change and write nothing |
 
 ## Processing Modes
 
 ### 1. Log-based Filtering (Default)
-When `--n-tilts 0` (default):
+By default (no `--max-tilt` / `--all-true`):
 - Views present in `taSolution.log` → `UseTilt = True`
 - Views not in log → `UseTilt = False`
 
-### 2. Dose-based Selection
-When `--n-tilts > 0`:
-- Sorts tilts by dose values from XML
-- Sets the N lowest-dose tilts to `True`
-- Sets remaining tilts to `False`
+### 2. Tilt-angle Selection
+When `--max-tilt > 0`:
+- Finds the lowest-dose tilt and its tilt angle
+- Keeps views within `--max-tilt` degrees of that angle as `True`
 - **Note**: Views not in taSolution.log are always set to `False`
 
-### 3. Dose-based Selection
-When `--n-tilts > 0`:
-- Sorts tilts by dose values from XML
-- Sets the N lowest-dose tilts to `True`
-- Sets remaining tilts to `False`
-- **Note**: Views not in taSolution.log are always set to `False`
-
-
-### 4. All True Mode
+### 3. All True Mode
 When `--all-true`:
 - Sets all `UseTilt` values to `True`
 - Useful for testing or resetting configurations
+
+## Deletion mode
+
+Everything above only flips `UseTilt` to `True`/`False` — the tilts stay in the
+file. With `--delete` the excluded tilts (the complement of the kept set from
+whichever mode above you chose) are **physically removed** from both the XML and
+the matching `.tomostar` file:
+
+- Every per-tilt list (`Angles`, `Dose`, `UseTilt`, `AxisAngle`, `AxisOffset*`,
+  `MoviePath`, `FOVFraction`, …) has the deleted entries dropped.
+- Per-tilt indexed elements (`TiltPS1D`, `TiltSimulatedScale`) are dropped and
+  their `ID`s renumbered `0..M-1`.
+- Every per-tilt grid (`GridCTF*`, and, when present, `GridMovement*`,
+  `GridAngle*`, `GridDoseBfacs*`, `GridDoseWeights` — detected automatically as
+  those whose `Depth == N`) has its deleted `Z`-slices removed, the surviving
+  `Node` `Z` values renumbered contiguously, and `Depth` updated to the new
+  count. Global grids (`Depth == 1`) are left untouched.
+- In the `.tomostar`, rows are matched to XML tilts **by movie name** (falling
+  back to row order with a warning if names can't be matched) and the deleted
+  rows are removed. The header, column order and `_wrp<Name> #<index>`
+  declarations are preserved.
+
+```bash
+# Delete the views etomo dropped, from both the XML and ../tomostar
+python remove_skipped_view.py --xml-dir ./ --delete
+
+# Preview only — writes nothing
+python remove_skipped_view.py --xml-dir ./ --delete --dry-run
+
+# Delete everything beyond ±40° of the lowest-dose tilt
+python remove_skipped_view.py --xml-dir ./ --delete --max-tilt 40
+```
+
+Safety:
+
+- Backups are written **in place** next to the originals: `<file>.xml.bak` and
+  `<file>.tomostar.bak`. If a `.bak` already exists, a numbered backup
+  (`.bak.1`, `.bak.2`, …) is created — nothing is overwritten.
+- The XML and the `.tomostar` are only written once **both** have been parsed,
+  edited and re-validated in memory (list lengths and grid `Depth`/`Z` ranges
+  are asserted against the new tilt count). Writes are atomic (temp file +
+  replace), and any per-tilt list whose length doesn't match `N` aborts that
+  file untouched.
+- `--delete` with `--all-true` is rejected (it would delete nothing).
+
+> ⚠️ **Deletion is NOT idempotent.** Once tilts are removed, the view numbers in
+> `taSolution.log` no longer line up with the XML rows, so **running `--delete`
+> again on the same tilt series would delete the WRONG tilts.** Restore from the
+> `.bak` files before re-running.
+
+> ℹ️ Deletion changes the tilt count, so downstream WarpTools steps
+> (`ts_ctf`, `ts_aretomo`, `ts_reconstruct`) must be re-run.
 
 ## Expected Directory Structure
 
 
 ```
-warp_tiltseries/
-├── *.xml                          # XML files to process
-├── backup_xml/                    # Backup directory (auto-created)
-└── tiltstack/                     # Tiltstack made by warp
-    └── [xml_basename]/
-        └── taSolution.log          # each TS done in etomo gets a taSolution.log 
+project/
+├── tomostar/                      # *.tomostar files (used by --delete)
+│   └── [xml_basename].tomostar
+└── warp_tiltseries/
+    ├── *.xml                      # XML files to process
+    ├── backup_xml/                # Backup directory for flip mode (auto-created)
+    └── tiltstack/                 # Tiltstack made by warp
+        └── [xml_basename]/
+            └── taSolution.log     # each TS done in etomo gets a taSolution.log
 ```
+
+Run the tool from `warp_tiltseries/`; the default `--tomostar-dir ../tomostar`
+then points at the sibling `tomostar/` directory. In `--delete` mode the
+`<file>.xml.bak` / `<file>.tomostar.bak` backups are written next to each
+original (not in `backup_xml/`).
 
 ## License
 

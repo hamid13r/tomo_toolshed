@@ -1,0 +1,47 @@
+
+data_
+
+loop_
+_wrpMovieName #1
+_wrpAngleTilt #2
+_wrpAxisAngle #3
+_wrpDose #4
+_wrpAverageIntensity #5
+_wrpMaskedFraction #6
+  ../warp_frameseries/Position_2_2_036_-54.00_20250922_181252_EER.eer  -54.00  -174.330  87.5  19.453  0.000
+  ../warp_frameseries/Position_2_2_035_-51.00_20250922_181217_EER.eer  -51.00  -174.330    85  19.953  0.000
+  ../warp_frameseries/Position_2_2_032_-48.00_20250922_181033_EER.eer  -48.00  -174.330  77.5  20.578  0.000
+  ../warp_frameseries/Position_2_2_031_-45.00_20250922_180959_EER.eer  -45.00  -174.330    75  20.922  0.000
+  ../warp_frameseries/Position_2_2_028_-42.00_20250922_180815_EER.eer  -42.01  -174.330  67.5  21.391  0.000
+  ../warp_frameseries/Position_2_2_027_-39.00_20250922_180742_EER.eer  -39.01  -174.330    65  21.625  0.000
+  ../warp_frameseries/Position_2_2_024_-36.00_20250922_180557_EER.eer  -36.01  -174.330  57.5  21.969  0.000
+  ../warp_frameseries/Position_2_2_023_-33.00_20250922_180523_EER.eer  -33.00  -174.330    55  22.141  0.000
+  ../warp_frameseries/Position_2_2_020_-30.00_20250922_180341_EER.eer  -30.00  -174.330  47.5  22.375  0.000
+  ../warp_frameseries/Position_2_2_019_-27.00_20250922_180308_EER.eer  -27.00  -174.330    45  22.469  0.000
+  ../warp_frameseries/Position_2_2_016_-24.00_20250922_180124_EER.eer  -24.00  -174.330  37.5  22.672  0.000
+  ../warp_frameseries/Position_2_2_015_-21.00_20250922_180051_EER.eer  -21.00  -174.330    35  22.875  0.000
+  ../warp_frameseries/Position_2_2_012_-18.00_20250922_175911_EER.eer  -18.01  -174.330  27.5  22.656  0.000
+  ../warp_frameseries/Position_2_2_011_-15.00_20250922_175838_EER.eer  -15.01  -174.330    25  22.938  0.000
+  ../warp_frameseries/Position_2_2_008_-12.00_20250922_175655_EER.eer  -12.01  -174.330  17.5  22.953  0.000
+   ../warp_frameseries/Position_2_2_007_-9.00_20250922_175622_EER.eer   -9.01  -174.330    15  22.844  0.000
+   ../warp_frameseries/Position_2_2_004_-6.00_20250922_175444_EER.eer   -6.01  -174.330   7.5  23.125  0.000
+   ../warp_frameseries/Position_2_2_003_-3.00_20250922_175411_EER.eer   -3.01  -174.330     5  22.750  0.000
+    ../warp_frameseries/Position_2_2_001_0.00_20250922_175228_EER.eer   -0.02  -174.330     0  21.938  0.000
+    ../warp_frameseries/Position_2_2_002_3.00_20250922_175332_EER.eer    2.99  -174.330   2.5  22.844  0.000
+    ../warp_frameseries/Position_2_2_005_6.00_20250922_175517_EER.eer    5.99  -174.330    10  22.594  0.000
+    ../warp_frameseries/Position_2_2_006_9.00_20250922_175548_EER.eer    8.99  -174.330  12.5  22.609  0.000
+   ../warp_frameseries/Position_2_2_009_12.00_20250922_175731_EER.eer   11.99  -174.330    20  22.562  0.000
+   ../warp_frameseries/Position_2_2_010_15.00_20250922_175803_EER.eer   14.99  -174.330  22.5  22.141  0.000
+   ../warp_frameseries/Position_2_2_013_18.00_20250922_175944_EER.eer   17.99  -174.330    30  22.016  0.000
+   ../warp_frameseries/Position_2_2_014_21.00_20250922_180016_EER.eer   20.99  -174.330  32.5  21.750  0.000
+   ../warp_frameseries/Position_2_2_017_24.00_20250922_180158_EER.eer   23.99  -174.330    40  21.562  0.000
+   ../warp_frameseries/Position_2_2_018_27.00_20250922_180233_EER.eer   26.98  -174.330  42.5  21.172  0.000
+   ../warp_frameseries/Position_2_2_021_30.00_20250922_180416_EER.eer   29.98  -174.330    50  20.859  0.000
+   ../warp_frameseries/Position_2_2_022_33.00_20250922_180448_EER.eer   32.98  -174.330  52.5  20.266  0.000
+   ../warp_frameseries/Position_2_2_025_36.00_20250922_180631_EER.eer   35.99  -174.330    60  19.828  0.000
+   ../warp_frameseries/Position_2_2_026_39.00_20250922_180703_EER.eer   38.99  -174.330  62.5  19.172  0.000
+   ../warp_frameseries/Position_2_2_029_42.00_20250922_180851_EER.eer   41.99  -174.330    70  18.406  0.000
+   ../warp_frameseries/Position_2_2_030_45.00_20250922_180923_EER.eer   44.99  -174.330  72.5  17.625  0.000
+   ../warp_frameseries/Position_2_2_033_48.00_20250922_181108_EER.eer   47.99  -174.330    80  16.641  0.000
+   ../warp_frameseries/Position_2_2_034_51.00_20250922_181140_EER.eer   50.99  -174.330  82.5  15.453  0.000
+   ../warp_frameseries/Position_2_2_037_54.00_20250922_181325_EER.eer   53.99  -174.330    90  14.219  0.000
