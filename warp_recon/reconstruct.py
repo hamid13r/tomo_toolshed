@@ -22,6 +22,13 @@ Two engines:
     volumes exactly like Warp, evaluating the CTF/weighting per sub-volume. Most
     faithful; only practical on small volumes or a GPU port.
 
+Optional novaCTF-style 3D-CTF correction (set `ctf3d_defocus_step_nm` or
+`ctf3d_num_strips` on ReconOptions, mode="global" only): splits the tomogram
+thickness into N Z-strips and reconstructs each with its own per-tilt defocus,
+then stitches the correctly-focused Z-slab from each into the final volume --
+see `reconstruct_novactf` docstring for how this adapts novaCTF's algorithm to
+this engine's joint-Fourier-insertion architecture.
+
 The weighting and filtering are injected as callables so new versions are a
 one-line change (see weighting.py / filters.py).
 """
@@ -53,6 +60,8 @@ class ReconOptions:
     pad_factor: float = 1.15           # in-plane padding (footprint under tilt)
     z_pad_factor: float = 1.0          # Z padding (keep ~= tomogram thickness)
     mode: str = "global"
+    ctf3d_defocus_step_nm: float = 0.0 # novaCTF-style 3D-CTF: Z-strip thickness (nm)
+    ctf3d_num_strips: int = 0          # novaCTF-style 3D-CTF: Z-strip count (alternative to step)
 
 
 # --------------------------------------------------------------------------- #
@@ -137,28 +146,27 @@ def _trilinear_scatter(vol, weightvol, covervol, coords, values, weights):
 # --------------------------------------------------------------------------- #
 # global engine                                                               #
 # --------------------------------------------------------------------------- #
-def reconstruct_global(model, tilt_images, opts: ReconOptions, progress=print):
-    """tilt_images: list of 2D float arrays at raw pixel size, in model order."""
-    n = model.n_tilts
-    assert len(tilt_images) == n, "need one image per tilt"
-
-    # target volume size in voxels
+def _compute_volume_grid(model, opts: ReconOptions):
+    """Output voxel size (Vx,Vy,Vz) and the (possibly padded) reconstruction
+    grid (S,S,Nz) it's built in. Defocus-independent, shared by every engine."""
     Vx = _even(model.volume_dims_A[0] / opts.angpix)
     Vy = _even(model.volume_dims_A[1] / opts.angpix)
     Vz = _even(model.volume_dims_A[2] / opts.angpix)
-
     # anisotropic reconstruction grid sized to the actual box (keeps Z thin so
     # memory stays ~O(box), not O(max_dim^3)):
     #   in-plane S x S covers the tomogram footprint under tilt-axis rotation
     #   Nz stays at the (thin) tomogram thickness
     S = _even(max(Vx, Vy) * opts.pad_factor)
     Nz = _even(Vz * opts.z_pad_factor)
-    progress(f"volume voxels: {Vx}x{Vy}x{Vz}; reconstruction grid: "
-             f"{S}x{S}x{Nz} (in-plane x Z)")
+    return Vx, Vy, Vz, S, Nz
 
+
+def _preprocess_tilts(model, tilt_images, opts: ReconOptions):
+    """Rescale + filter every tilt to the target pixel size. Independent of
+    defocus, so novaCTF's Z-strip passes share this instead of repeating it."""
+    n = model.n_tilts
     down = opts.angpix / opts.raw_angpix
 
-    # preprocess & rescale all tilts to target pixel size
     scaled = []
     for t in range(n):
         raw = tilt_images[t].astype(np.float32)
@@ -184,13 +192,17 @@ def reconstruct_global(model, tilt_images, opts: ReconOptions, progress=print):
         model.image_dims_A = np.array([tilt_images[0].shape[1] * opts.raw_angpix,
                                        tilt_images[0].shape[0] * opts.raw_angpix],
                                       np.float32)
+    return scaled, size_rounding
 
-    # tomogram center in physical Angstrom
-    center = model.volume_dims_A / 2.0
-    xy_A, defocus_um = geo.positions_in_all_tilts(model, center, size_rounding)
 
-    # weighted CTF parameters per tilt (the hook lives here)
-    weighting_fn = opts._weighting_fn
+def _insert_all_tilts(model, scaled, opts: ReconOptions, xy_A, defocus_um,
+                      weighting_fn, S, Nz, center, progress):
+    """CTF-weighted Fourier-slice insertion for one defocus assumption (the
+    single global pass, or one novaCTF Z-strip). `xy_A` (patch center per
+    tilt) stays fixed at the true tomogram center regardless of defocus --
+    only the CTF term varies with `defocus_um`.
+    Returns (data_vol, weight_vol, cover_vol, params)."""
+    n = model.n_tilts
     params = weighting_fn(model, center, defocus_um, opts.use_global_weights)
 
     # centered frequency indices for the S x S slice
@@ -235,22 +247,134 @@ def reconstruct_global(model, tilt_images, opts: ReconOptions, progress=print):
         progress(f"  inserted tilt {t + 1}/{n} (angle {model.angles[t]:+.1f}, "
                  f"defocus {defocus_um[t]:.2f} um)")
 
-    # combine exactly like ReconstructFull
+    return data_vol, weight_vol, cover_vol, params
+
+
+def _combine_volume(data_vol, weight_vol, cover_vol, opts: ReconOptions, shape):
+    """Combine + deapodize + crop, exactly like ReconstructFull."""
     cover = np.minimum(cover_vol, 1.0)
-    data_vol *= cover
+    data_vol = data_vol * cover
     weight_vol = np.maximum(weight_vol, opts.weight_floor)
     recon_ft = data_vol / weight_vol
 
     vol = np.fft.fftshift(np.real(np.fft.ifftn(np.fft.ifftshift(recon_ft)))).astype(np.float32)
     vol = _deapodize(vol)
+    return _crop_center(vol, shape)
 
-    # crop centered grid to (Vz, Vy, Vx)
-    vol = _crop_center(vol, (Vz, Vy, Vx))
+
+def reconstruct_global(model, tilt_images, opts: ReconOptions, progress=print):
+    """tilt_images: list of 2D float arrays at raw pixel size, in model order."""
+    n = model.n_tilts
+    assert len(tilt_images) == n, "need one image per tilt"
+
+    Vx, Vy, Vz, S, Nz = _compute_volume_grid(model, opts)
+    progress(f"volume voxels: {Vx}x{Vy}x{Vz}; reconstruction grid: "
+             f"{S}x{S}x{Nz} (in-plane x Z)")
+
+    scaled, size_rounding = _preprocess_tilts(model, tilt_images, opts)
+
+    # tomogram center in physical Angstrom
+    center = model.volume_dims_A / 2.0
+    xy_A, defocus_um = geo.positions_in_all_tilts(model, center, size_rounding)
+
+    data_vol, weight_vol, cover_vol, params = _insert_all_tilts(
+        model, scaled, opts, xy_A, defocus_um, opts._weighting_fn,
+        S, Nz, center, progress)
+
+    vol = _combine_volume(data_vol, weight_vol, cover_vol, opts, (Vz, Vy, Vx))
 
     outputs = {"reconstruction": vol}
     if opts.do_deconv:
         outputs["deconv"] = fmod.deconvolve(
             vol, opts.angpix, params[n // 2],
+            strength=opts.deconv_strength, falloff=opts.deconv_falloff,
+            highpass=opts.deconv_highpass)
+    return outputs
+
+
+# --------------------------------------------------------------------------- #
+# novaCTF-style 3D-CTF correction (Z-strip defocus)                          #
+# --------------------------------------------------------------------------- #
+def _novactf_num_strips(volume_thickness_A, opts: ReconOptions):
+    """Mirrors novaCTF's Geometry::computeNumberOfParts: from a step size in
+    nm, floor(thickness/step), forced odd and >=1. Falls back to an explicit
+    strip count if no step size was given."""
+    if opts.ctf3d_defocus_step_nm and opts.ctf3d_defocus_step_nm > 0:
+        step_A = opts.ctf3d_defocus_step_nm * 10.0
+        n = max(int(np.floor(volume_thickness_A / step_A)), 1)
+        if n % 2 == 0:
+            n -= 1
+        return max(n, 1)
+    return max(int(opts.ctf3d_num_strips), 1)
+
+
+def reconstruct_novactf(model, tilt_images, opts: ReconOptions, progress=print):
+    """novaCTF-style 3D-CTF correction (Turonova et al. 2017): split the
+    tomogram thickness into N Z-strips and reconstruct each with its own
+    per-tilt defocus, then stitch the correctly-focused Z-slab from each
+    strip's reconstruction into the final volume.
+
+    novaCTF itself gets this precision from an explicit real-space
+    weighted-back-projection loop: for every output voxel it picks, *per
+    contributing tilt*, whichever of N pre-corrected projection copies has
+    the defocus closest to that voxel's true depth along *that tilt's* beam
+    (ctf3d.cpp:computeOneRow / generateFocusGrid) -- since the same 3D point
+    sits at a different depth along the beam for each tilt angle. This
+    engine instead does joint multi-tilt Fourier-slice insertion (the
+    central-slice theorem: one rotated 2D FT populates every Z at once), so
+    there is no per-voxel-per-tilt term left to select between after the
+    fact -- a strip can only get ONE representative defocus, applied to a
+    tilt's *entire* projected footprint, not varied further across X the way
+    novaCTF's own per-tilt geometry does. This is the same category of
+    approximation as mode="global" vs Warp's true per-subvolume local
+    defocus (see README).
+
+    What we *do* get exactly right: geometry.positions_in_all_tilts already
+    computes the true per-tilt defocus at any 3D point via the full rotated
+    ray (not novaCTF's own flat, angle-independent nm shift per strip), so
+    evaluating it at each strip's Z-shifted center gives genuinely correct
+    per-tilt, per-strip defocus values for free.
+
+    Cost: ~N times a single reconstruction pass. Preprocessing (rescale +
+    filter) is shared across strips; only the CTF-weighted insertion repeats.
+    """
+    n = model.n_tilts
+    assert len(tilt_images) == n, "need one image per tilt"
+
+    Vx, Vy, Vz, S, Nz = _compute_volume_grid(model, opts)
+    N = _novactf_num_strips(model.volume_dims_A[2], opts)
+    progress(f"volume voxels: {Vx}x{Vy}x{Vz}; reconstruction grid: "
+             f"{S}x{S}x{Nz} (in-plane x Z); novaCTF 3D-CTF: {N} Z-strip(s)")
+
+    scaled, size_rounding = _preprocess_tilts(model, tilt_images, opts)
+
+    center = model.volume_dims_A / 2.0
+    xy_A, _ = geo.positions_in_all_tilts(model, center, size_rounding)
+
+    strip_thickness_A = model.volume_dims_A[2] / N
+    merged = np.zeros((Vz, Vy, Vx), np.float32)
+    last_params = None
+
+    for i in range(N):
+        z_offset = (i - N // 2) * strip_thickness_A
+        strip_center = center + np.array([0.0, 0.0, z_offset])
+        _, defocus_um_i = geo.positions_in_all_tilts(model, strip_center, size_rounding)
+
+        progress(f"novaCTF strip {i + 1}/{N} (Z offset {z_offset:+.1f} A):")
+        data_vol, weight_vol, cover_vol, params = _insert_all_tilts(
+            model, scaled, opts, xy_A, defocus_um_i, opts._weighting_fn,
+            S, Nz, center, progress)
+        vol_i = _combine_volume(data_vol, weight_vol, cover_vol, opts, (Vz, Vy, Vx))
+        last_params = params
+
+        z0 = int(round(i * Vz / N))
+        z1 = Vz if i == N - 1 else int(round((i + 1) * Vz / N))
+        merged[z0:z1] = vol_i[z0:z1]
+
+    outputs = {"reconstruction": merged}
+    if opts.do_deconv:
+        outputs["deconv"] = fmod.deconvolve(
+            merged, opts.angpix, last_params[n // 2],
             strength=opts.deconv_strength, falloff=opts.deconv_falloff,
             highpass=opts.deconv_highpass)
     return outputs
@@ -283,6 +407,8 @@ def reconstruct(model, tilt_images, opts: ReconOptions,
     """Top-level entry. weighting_fn defaults to the exact Warp weighting."""
     opts._weighting_fn = weighting_fn or wmod.warp_weighting
     if opts.mode == "global":
+        if opts.ctf3d_defocus_step_nm or opts.ctf3d_num_strips:
+            return reconstruct_novactf(model, tilt_images, opts, progress=progress)
         return reconstruct_global(model, tilt_images, opts, progress=progress)
     raise NotImplementedError(
         "mode='subvolume' is provided as a documented extension point; the "

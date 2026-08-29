@@ -27,7 +27,7 @@ import numpy as np
 
 import numpy as np
 from warp_recon import load_tiltseries_xml, reconstruct, ReconOptions
-from warp_recon import warp_weighting, make_dose_bfactor_weighting
+from warp_recon import warp_weighting, make_dose_bfactor_weighting, motioncor3_dose_weighting
 from warp_recon.mrc_io import read_mrc, write_mrc, write_png_slice
 from warp_recon.metadata import read_settings_pixelsize, read_settings_tomo_dims
 
@@ -96,9 +96,30 @@ def main():
                          "Fourier shells at the cost of also damping real weak signal there")
     ap.add_argument("--float16", action="store_true", help="write 16-bit MRC like Warp")
 
+    ap.add_argument("--ctf3d_defocus_step", type=float, default=0.0,
+                    help="novaCTF-style 3D-CTF correction: split the tomogram thickness "
+                         "into Z-strips of this thickness (nm) and reconstruct each with "
+                         "its own per-tilt defocus, stitching the correctly-focused "
+                         "Z-slab from each into the final volume (Turonova et al. 2017). "
+                         "0 (default) disables it. Mutually exclusive with "
+                         "--ctf3d_num_strips; costs ~N times a single reconstruction.")
+    ap.add_argument("--ctf3d_num_strips", type=int, default=0,
+                    help="novaCTF-style 3D-CTF correction: explicit Z-strip count instead "
+                         "of --ctf3d_defocus_step. 0 (default) disables it.")
+
     # experimentation hooks
     ap.add_argument("--dose_bfactor_scale", type=float, default=None,
-                    help="use a custom dose->Bfactor factor instead of Warp's 4")
+                    help="use a custom dose->Bfactor factor instead of Warp's 4 "
+                         "(ignored if --dose_weighting=motioncor3)")
+    ap.add_argument("--dose_weighting", choices=["warp", "motioncor3"], default="warp",
+                    help="per-tilt dose exposure filter. 'warp' (default) is Warp's own "
+                         "linear model (Bfactor = -dose*4, a single Gaussian falloff). "
+                         "'motioncor3' uses the Grant & Grigorieff (2015) critical-"
+                         "exposure curve MotionCor3 applies to frames "
+                         "(Correct/GWeightFrame.cu), applied here per tilt via each "
+                         "tilt's accumulated dose -- falls off more gently than a "
+                         "Gaussian at low dose/high resolution, aiming to preserve more "
+                         "high-resolution signal from low-dose tilts.")
     args = ap.parse_args()
 
     model = load_tiltseries_xml(args.xml, args.tomostar)
@@ -139,10 +160,14 @@ def main():
         subvolume_size=args.subvolume_size, subvolume_padding=args.subvolume_padding,
         pad_factor=args.pad_factor, weight_floor=args.weight_floor,
         renorm_variance=args.renorm_variance, mode="global",
+        ctf3d_defocus_step_nm=args.ctf3d_defocus_step, ctf3d_num_strips=args.ctf3d_num_strips,
     )
 
     wfn = warp_weighting
-    if args.dose_bfactor_scale is not None:
+    if args.dose_weighting == "motioncor3":
+        wfn = motioncor3_dose_weighting
+        print("using MotionCor3-style (Grant & Grigorieff) per-tilt dose weighting")
+    elif args.dose_bfactor_scale is not None:
         wfn = make_dose_bfactor_weighting(args.dose_bfactor_scale)
         print(f"using custom dose->Bfactor scale = {args.dose_bfactor_scale}")
 

@@ -47,6 +47,32 @@ bit-identical match needs Warp's CUDA gridding kernel:
 - The **deconvolution** filter approximates `GPU.DeconvolveCTF` from the
   documented strength/falloff/highpass parameters.
 
+**Optional novaCTF-style 3D-CTF correction** (`--ctf3d_defocus_step` nm, or
+`--ctf3d_num_strips`) narrows the `global` engine's tomogram-centre-defocus gap
+above, the way novaCTF (Turoňová et al. 2017, doi:10.1016/j.jsb.2017.07.007)
+does: split the tomogram thickness into `N` Z-strips, reconstruct each with
+its own per-tilt defocus, and stitch the correctly-focused Z-slab from each
+into the final volume. novaCTF's own C++ source
+(`ctf3d.cpp:generateFocusGrid`/`computeOneRow`) gets this from an explicit
+real-space back-projection loop that picks, *per contributing tilt*, whichever
+of `N` pre-corrected projections has the defocus closest to a given voxel's
+depth along *that tilt's own* beam — since the same 3D point sits at a
+different depth along the beam for each tilt angle. This engine instead does
+joint multi-tilt Fourier-slice insertion (the central-slice theorem: one
+rotated 2D FT populates every Z at once), so there's no per-voxel-per-tilt
+term left to select between afterward — each strip gets one representative
+defocus applied to a tilt's *entire* footprint, not varied further across X
+the way novaCTF's own per-tilt geometry does. That's the same category of
+approximation as the tomogram-centre-defocus limitation above, just at `N`
+Z-bands instead of one. What *is* exact: `geometry.positions_in_all_tilts`
+already computes the true per-tilt defocus at any 3D point via the full
+rotated ray (novaCTF's own defocus-file step only approximates this with a
+flat, angle-independent nm shift per strip), so evaluating it at each strip's
+Z-shifted center gives genuinely correct per-tilt, per-strip defocus values
+for free. Cost is `~N`x a single reconstruction pass (preprocessing is shared
+across strips; only the CTF-weighted insertion repeats). See
+`reconstruct.reconstruct_novactf` for the implementation.
+
 Validated against real data (2026-08-28, `VLP3x3_p03_ts_002`, 21.16 Å/px):
 per-tilt preprocessing used to force every tilt to unit variance after the
 high-pass (`preprocess_tilt`'s old default). That disproportionately boosts
@@ -126,6 +152,21 @@ reconstruct(model, tilts, opts, weighting_fn=wfn)
 ```
 
 or from the CLI: `--dose_bfactor_scale 6`.
+
+A second built-in scheme, `motioncor3_dose_weighting`, replaces Warp's linear
+dose Bfactor (a single Gaussian falloff, `Bfactor = -dose*4`) with the
+Grant & Grigorieff (2015) critical-exposure curve MotionCor3 applies to
+frames (`Correct/GWeightFrame.cu:mGCalcWeight`), applied here per tilt via
+each tilt's accumulated dose. Use it with `--dose_weighting motioncor3`.
+Validated on `VLP3x3_p03_ts_002` (2026-08-28): Pearson correlation against
+the Warp reference improved on every metric (specimen-band 0.080→0.090,
+full-box 0.011→0.017) and the FSC crossing points were unchanged (0.5 @
+~165 Å, 0.143 @ ~111 Å — still a real, valid curve). Note this comes from
+*less* high-frequency power overall, not more: the curve's biggest deviation
+from a flat B-factor is a *stronger* attenuation of high-dose (typically
+high-tilt) images at high resolution, where those images carry mostly noise
+rather than signal — it turns out to be more accurate there than Warp's own
+flat linear model, not more permissive.
 
 **Filtering** — `warp_recon/filters.py`: `preprocess_tilt()` (per-tilt real-space
 band-pass / normalize / invert) and `deconvolve()` (post-reconstruction Fourier

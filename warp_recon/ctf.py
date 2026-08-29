@@ -18,6 +18,12 @@ Frequencies s are in 1/Angstrom. In Get1D Warp uses deltaf = -(Defocus_um*1e4),
 i.e. Angstrom with a sign flip; we reproduce that exactly.
 
 Astigmatism: deltaf(s, phi) = defocus + 0.5*defocusdelta*cos(2*(phi - astig))
+
+`dose_model="motioncor3"` replaces the Bfactor exposure-filter envelope above
+with the Grant & Grigorieff (2015) critical-exposure curve, exactly as
+MotionCor3 applies it to frames (Correct/GWeightFrame.cu:mGCalcWeight) -- see
+`motioncor3_dose_envelope` below. See weighting.py:motioncor3_dose_weighting
+for the per-tilt weighting scheme that uses it.
 """
 from __future__ import annotations
 
@@ -40,6 +46,9 @@ class CTFParams:
     bfactor_delta: float = 0.0       # Angstrom^2 (anisotropic B, magnitude)
     bfactor_angle: float = 0.0       # degrees
     scale: float = 1.0               # linear amplitude scale (dose/geom weight)
+    dose_model: str = "gaussian"     # "gaussian" (the Bfactor envelope above) or
+                                      # "motioncor3" (critical-exposure curve below)
+    dose_ea2: float = 0.0            # accumulated dose (e-/A^2); only used by "motioncor3"
 
     def ks(self):
         V = self.voltage * 1e3
@@ -81,16 +90,50 @@ def ctf_2d(params: CTFParams, sx: np.ndarray, sy: np.ndarray,
 
     if weighted:
         if do_bfactor:
-            env = np.exp(K4 * s2)
-            if params.bfactor_delta != 0.0:
-                phi = np.arctan2(sy, sx)
-                bangle = np.deg2rad(params.bfactor_angle)
-                bdelta = params.bfactor_delta * 0.25
-                env = env * np.exp(bdelta * s2 * np.cos(2.0 * (phi - bangle)))
+            if params.dose_model == "motioncor3":
+                env = motioncor3_dose_envelope(s2, params.dose_ea2, params.voltage)
+            else:
+                env = np.exp(K4 * s2)
+                if params.bfactor_delta != 0.0:
+                    phi = np.arctan2(sy, sx)
+                    bangle = np.deg2rad(params.bfactor_angle)
+                    bdelta = params.bfactor_delta * 0.25
+                    env = env * np.exp(bdelta * s2 * np.cos(2.0 * (phi - bangle)))
             ctf = ctf * env
         ctf = ctf * params.scale
 
     return ctf.astype(np.float32)
+
+
+def _motioncor3_kv_factor(voltage_kv: float) -> float:
+    """Voltage rescaling of the (300kV-calibrated) critical-dose curve,
+    matching MotionCor3's GWeightFrame.cu:BuildWeight exactly."""
+    if voltage_kv >= 300:
+        return 1.0
+    if voltage_kv >= 200:
+        return 0.002 * (voltage_kv - 200) + 0.8
+    if voltage_kv >= 120:
+        return 0.004375 * (voltage_kv - 120) + 0.45
+    return 0.45
+
+
+def motioncor3_dose_envelope(s2: np.ndarray, dose_ea2: float, voltage_kv: float) -> np.ndarray:
+    """Grant & Grigorieff (2015) critical-exposure curve, as used by MotionCor3's
+    per-frame dose weighting (Correct/GWeightFrame.cu:mGCalcWeight):
+
+        Ncrit(s) = 0.24499 * s^-1.6649 + 2.8141    [e-/A^2], s in 1/A
+        weight(s) = exp(-0.5 * dose / (Ncrit(s) * kv_factor))
+
+    Unlike the Gaussian Bfactor envelope (a fixed exp(-k*s^2) shape whose only
+    freedom is a per-tilt scale), this curve's fall-off flattens at low s and
+    steepens at high s, matching the empirically measured resolution-dependent
+    radiation damage rate rather than approximating it with one Gaussian.
+    dose_ea2 is the tilt's *accumulated* dose (same quantity as Warp's own
+    `Dose[t]`, i.e. model.dose[t] -- not the per-tilt increment).
+    """
+    s = np.sqrt(np.maximum(s2, 1e-8))
+    crit_dose = (0.24499 * np.power(s, -1.6649) + 2.8141) * _motioncor3_kv_factor(voltage_kv)
+    return np.exp(-0.5 * dose_ea2 / crit_dose).astype(np.float32)
 
 
 def frequency_grid(size: int, angpix: float):
