@@ -81,10 +81,19 @@ def main():
     ap.add_argument("--deconv_highpass", type=float, default=300.0)
     ap.add_argument("--dont_invert", action="store_true")
     ap.add_argument("--dont_normalize", action="store_true")
+    ap.add_argument("--renorm_variance", action="store_true",
+                    help="force each tilt to unit std after the high-pass (off by "
+                         "default -- this over-boosts high-tilt/low-signal images "
+                         "and was the dominant source of excess high-frequency "
+                         "noise vs Warp's ts_reconstruct; see warp_recon/filters.py)")
     ap.add_argument("--subvolume_size", type=int, default=64)
     ap.add_argument("--subvolume_padding", type=float, default=3.0)
     ap.add_argument("--pad_factor", type=float, default=1.0,
                     help="reconstruction-cube padding (global engine)")
+    ap.add_argument("--weight_floor", type=float, default=0.01,
+                    help="minimum CTF-weight divisor before division (ReconstructFull's "
+                         "floor); raising this damps noise amplification in low-coverage "
+                         "Fourier shells at the cost of also damping real weak signal there")
     ap.add_argument("--float16", action="store_true", help="write 16-bit MRC like Warp")
 
     # experimentation hooks
@@ -128,7 +137,8 @@ def main():
         do_deconv=args.deconv, deconv_strength=args.deconv_strength,
         deconv_falloff=args.deconv_falloff, deconv_highpass=args.deconv_highpass,
         subvolume_size=args.subvolume_size, subvolume_padding=args.subvolume_padding,
-        pad_factor=args.pad_factor, mode="global",
+        pad_factor=args.pad_factor, weight_floor=args.weight_floor,
+        renorm_variance=args.renorm_variance, mode="global",
     )
 
     wfn = warp_weighting

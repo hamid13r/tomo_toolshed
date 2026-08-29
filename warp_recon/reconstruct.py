@@ -41,6 +41,7 @@ class ReconOptions:
     raw_angpix: float                  # unbinned tilt-image pixel size (Angstrom)
     invert: bool = True
     normalize: bool = True
+    renorm_variance: bool = False      # see filters.preprocess_tilt docstring
     do_deconv: bool = False
     deconv_strength: float = 1.0
     deconv_falloff: float = 1.0
@@ -167,7 +168,8 @@ def reconstruct_global(model, tilt_images, opts: ReconOptions, progress=print):
         # Warp's high-pass cutoff: 1/(SizeSub*padding/2) cycles/pixel -> Nyquist frac
         hp_frac = 1.0 / (opts.subvolume_size * opts.subvolume_padding / 2.0) * 2.0
         img = fmod.preprocess_tilt(img, opts.angpix, hp_frac,
-                                   normalize=opts.normalize, invert=opts.invert)
+                                   normalize=opts.normalize, invert=opts.invert,
+                                   renorm_variance=opts.renorm_variance)
         scaled.append(img)
 
     # size rounding factor (usually ~1) from the first tilt

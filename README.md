@@ -47,6 +47,19 @@ bit-identical match needs Warp's CUDA gridding kernel:
 - The **deconvolution** filter approximates `GPU.DeconvolveCTF` from the
   documented strength/falloff/highpass parameters.
 
+Validated against real data (2026-08-28, `VLP3x3_p03_ts_002`, 21.16 Å/px):
+per-tilt preprocessing used to force every tilt to unit variance after the
+high-pass (`preprocess_tilt`'s old default). That disproportionately boosts
+high-tilt images, which have the least real high-frequency signal left after
+the high-pass and are mostly noise there — it was the dominant cause of a
+5-10 dB excess in the reconstructed power spectrum vs Warp's own
+`ts_reconstruct` output. Fixed by making that renormalization opt-in
+(`--renorm_variance`, off by default); with it off, the power spectrum now
+tracks Warp's closely from DC out to ~125 Å, with only a small residual
+high-frequency excess left (consistent with the trilinear-vs-gridding-kernel
+difference above). See `tomo_eval/compare_fixed/` for the comparison that
+found this (not tracked in git; regenerate with `compare_tomograms.py`).
+
 ## Install
 
 ```bash

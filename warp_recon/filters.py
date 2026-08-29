@@ -20,12 +20,20 @@ import numpy as np
 # Per-tilt preprocessing                                                      #
 # --------------------------------------------------------------------------- #
 def preprocess_tilt(img, angpix, highpass_px, normalize=True, invert=True,
-                    mask_edge=16, mask_border=32):
+                    mask_edge=16, mask_border=32, renorm_variance=False):
     """Mirror ReconstructFull preprocessing for one tilt image (float32, 2D).
 
     highpass_px : the Bandpass low-frequency cutoff Warp uses,
                   1/(SubVolumeSize * SubVolumePadding / 2) in cycles/pixel.
                   Here expressed as a fraction of Nyquist via `highpass_px`.
+    renorm_variance : force each tilt to unit std AFTER the high-pass. Off by
+                  default: forcing every tilt to the same post-high-pass
+                  variance disproportionately boosts the high-tilt images,
+                  which have the least real high-frequency signal left after
+                  the high-pass and are mostly noise there -- confirmed by
+                  A/B reconstruction on real data, this was the dominant
+                  source of the excess high-frequency power/noise vs Warp's
+                  own ts_reconstruct output (see tomo_eval/compare_ablation).
     """
     out = img.astype(np.float32, copy=True)
     if normalize:
@@ -35,10 +43,10 @@ def preprocess_tilt(img, angpix, highpass_px, normalize=True, invert=True,
         out = _mask_rectangular(out, mask_border, mask_edge)
         # high-pass (Bandpass low cutoff .. 1)
         out = _highpass(out, highpass_px)
-        # normalize to zero mean / unit std
-        std = out.std()
-        if std > 0:
-            out = (out - out.mean()) / std
+        if renorm_variance:
+            std = out.std()
+            if std > 0:
+                out = (out - out.mean()) / std
     if invert:
         out = out * -1.0
     return out.astype(np.float32)
