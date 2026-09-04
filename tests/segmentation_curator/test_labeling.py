@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from segmentation_curator import labeling
+from tomo_toolshed.segmentation_curator import labeling
 
 
 def make_volume():

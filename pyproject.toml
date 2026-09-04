@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tomo-toolshed"
+version = "0.1.0"
+description = "A collection of lightweight cryo-ET file/CLI tools, all under a single tomo_toolshed command."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "Hamid Rahmani" }]
+keywords = ["cryo-et", "tomography", "warp", "etomo", "segmentation", "curation"]
+dependencies = [
+    "click",
+    "pandas",
+    "lxml",
+    "numpy",
+    "scipy",
+    "scikit-image",
+    "mrcfile",
+    "connected-components-3d",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+tomo_toolshed = "tomo_toolshed.cli:tomo_toolshed"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

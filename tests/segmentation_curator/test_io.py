@@ -1,6 +1,6 @@
 import numpy as np
 
-from segmentation_curator import io as mrc_io
+from tomo_toolshed.segmentation_curator import io as mrc_io
 
 
 def test_mrc_roundtrip(tmp_path):
