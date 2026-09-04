@@ -65,6 +65,21 @@ tomo_toolshed trace-filaments mask.mrc -o particles.star --pixel-size 9.98 --bil
 | `--invert-rot / --no-invert-rot` | `--invert-rot` | Transpose the rotation matrix before decomposition (RELION reference→particle). |
 | `--bild` | *(off)* | Also write a ChimeraX `.bild` overlay. **Opt-in.** |
 | `--bild-dir PATH` | *(alongside `--output`)* | Directory for the `.bild` file; only used with `--bild`. |
+| `--random-rot` | *(off)* | Give each particle a uniformly random rotation about the filament axis (`rlnAngleRot` in `[0, 360)`); `rlnAngleTilt`/`rlnAnglePsi` are untouched and `rlnAngleRotPrior` is omitted. **Opt-in.** |
+| `--seed INT` | *(drawn)* | Seed for `--random-rot`. If omitted, a seed is drawn and printed so the run can be reproduced with `--seed <value>`. |
+
+## Randomizing the about-axis angle
+
+Tracing fixes the filament's *direction* — `rlnAngleTilt` and `rlnAnglePsi` — but
+the rotation **about** the filament axis is undetermined; the traced value of
+`rlnAngleRot` is just an arbitrary gauge from how the local frame is built. If
+every particle keeps that arbitrary angle, an initial average or reconstruction
+can lock onto a false common azimuth. `--random-rot` replaces `rlnAngleRot` with
+a uniformly random angle in `[0, 360)` per particle so the about-axis view is
+unbiased, while leaving the traced direction (tilt/psi and their priors)
+exactly as computed. Because the angle is now unconstrained, `rlnAngleRotPrior`
+is dropped from the output. The draw uses a local generator seeded by `--seed`
+(or a drawn, printed seed) so a run is fully reproducible.
 
 ## ChimeraX `.bild` output is opt-in
 

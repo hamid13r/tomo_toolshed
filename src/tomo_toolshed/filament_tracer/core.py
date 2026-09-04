@@ -136,6 +136,38 @@ def _noop(*args, **kwargs):
     pass
 
 
+def _draw_seed():
+    """A reproducible 63-bit seed for the local generator."""
+    return int(np.random.default_rng().integers(0, 2 ** 63 - 1))
+
+
+def randomize_axis_rotation(df, seed=None, log=None):
+    """Assign each particle a uniformly random rotation about the filament axis.
+
+    Overwrites ``rlnAngleRot`` with U[0, 360) drawn from a *local* generator
+    (``np.random.default_rng``; the global RNG state is never touched) and drops
+    ``rlnAngleRotPrior`` entirely: the about-axis angle is undetermined by
+    tracing, so it carries no prior. ``rlnAngleTilt`` / ``rlnAnglePsi`` and their
+    priors -- the traced helix direction -- are left untouched.
+
+    Returns ``(df, seed)`` with the seed actually used (drawn if ``seed`` was
+    ``None``), so the run can be reproduced.
+    """
+    log = log or _noop
+    if seed is None:
+        seed = _draw_seed()
+        log(f"random-rot: drew seed {seed} (pass --seed {seed} to reproduce)")
+    else:
+        log(f"random-rot: using seed {seed}")
+
+    rng = np.random.default_rng(seed)
+    df = df.copy()
+    df['rlnAngleRot'] = rng.uniform(0.0, 360.0, size=len(df))
+    if 'rlnAngleRotPrior' in df.columns:
+        df = df.drop(columns=['rlnAngleRotPrior'])
+    return df, seed
+
+
 def trace_filaments(
     mask_path,
     star_out,
@@ -153,6 +185,8 @@ def trace_filaments(
     invert_rot=True,
     write_bild_file=False,
     bild_path=None,
+    random_rot=False,
+    seed=None,
     log=None,
 ):
     """Trace filaments in ``mask_path`` and write a helical star file.
@@ -160,6 +194,12 @@ def trace_filaments(
     Returns ``(dataframe, records)``. The star file is always written to
     ``star_out``. A ``.bild`` overlay is written to ``bild_path`` only when
     ``write_bild_file`` is true; the star output is identical either way.
+
+    When ``random_rot`` is true, each particle's ``rlnAngleRot`` (the rotation
+    about the filament axis, undetermined by tracing) is replaced with a
+    uniformly random angle in [0, 360) and ``rlnAngleRotPrior`` is dropped; the
+    traced direction (tilt/psi) is untouched. ``seed`` seeds that draw; if
+    ``None`` a seed is drawn and logged.
     """
     log = log or _noop
 
@@ -268,6 +308,11 @@ def trace_filaments(
         df.loc[i, 'rlnAnglePsiPrior'] = psi
         df.loc[i, 'rlnHelicalTubeID'] = r['tube']
         df.loc[i, 'rlnHelicalTrackLength'] = r['track']
+
+    # Optional: replace the (arbitrary) about-axis angle with a random one.
+    # Runs only when asked, so the default output path is unchanged.
+    if random_rot:
+        df, seed = randomize_axis_rotation(df, seed=seed, log=log)
 
     starfile.write(df, star_out, overwrite=True)
     log(f"wrote {star_out}")

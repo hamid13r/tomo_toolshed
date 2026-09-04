@@ -6,10 +6,26 @@ end to end quickly and deterministically.
 
 import numpy as np
 import mrcfile
+import pandas as pd
 import pytest
+import starfile
 from click.testing import CliRunner
 
 from tomo_toolshed.filament_tracer import core
+
+
+def _star_payload(path):
+    """Star content minus the ``# Created by ... at <timestamp>`` comment line.
+
+    The ``starfile`` writer stamps the wall-clock time into a leading comment, so
+    two runs are never byte-identical across a second boundary. Comparing the
+    non-comment lines is the meaningful notion of "identical star files".
+    """
+    from pathlib import Path
+    return "\n".join(
+        line for line in Path(path).read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    )
 from tomo_toolshed.filament_tracer.cli import trace_filaments
 
 
@@ -64,7 +80,7 @@ def test_star_byte_identical_with_and_without_bild(tmp_path):
     core.trace_filaments(str(mask), str(star_on), write_bild_file=True,
                          bild_path=str(tmp_path / "on.bild"), **COMMON)
 
-    assert star_off.read_bytes() == star_on.read_bytes()
+    assert _star_payload(star_off) == _star_payload(star_on)
     # The .bild only appears for the flagged run.
     assert not (tmp_path / "off.bild").exists()
     assert (tmp_path / "on.bild").exists()
@@ -92,3 +108,70 @@ def test_cli_runs_non_interactively(tmp_path):
     ])
     assert result2.exit_code == 0, result2.output
     assert (tmp_path / "out2.bild").exists()
+
+
+# ---------------------------------------------------------------------------
+# --random-rot: randomize the about-axis angle (rlnAngleRot) only.
+# ---------------------------------------------------------------------------
+def test_random_rot_same_seed_is_reproducible(tmp_path):
+    mask = _write_tube_mask(tmp_path / "mask.mrc")
+    a = tmp_path / "a.star"
+    b = tmp_path / "b.star"
+    core.trace_filaments(str(mask), str(a), random_rot=True, seed=42, **COMMON)
+    core.trace_filaments(str(mask), str(b), random_rot=True, seed=42, **COMMON)
+    assert _star_payload(a) == _star_payload(b)
+
+
+def test_random_rot_off_is_byte_identical_to_default(tmp_path):
+    mask = _write_tube_mask(tmp_path / "mask.mrc")
+    default = tmp_path / "default.star"     # no random_rot kwarg at all
+    flag_off = tmp_path / "off.star"        # random_rot explicitly False
+    core.trace_filaments(str(mask), str(default), **COMMON)
+    core.trace_filaments(str(mask), str(flag_off), random_rot=False, seed=42, **COMMON)
+    assert _star_payload(default) == _star_payload(flag_off)
+
+
+def test_random_rot_changes_only_rot_column(tmp_path):
+    mask = _write_tube_mask(tmp_path / "mask.mrc")
+    off = tmp_path / "off.star"
+    on = tmp_path / "on.star"
+    core.trace_filaments(str(mask), str(off), random_rot=False, **COMMON)
+    core.trace_filaments(str(mask), str(on), random_rot=True, seed=7, **COMMON)
+
+    df_off = starfile.read(str(off))
+    df_on = starfile.read(str(on))
+
+    assert len(df_on) > 1  # need several particles to show they differ
+
+    # The prior for the (now unconstrained) about-axis angle is dropped.
+    assert "rlnAngleRotPrior" in df_off.columns
+    assert "rlnAngleRotPrior" not in df_on.columns
+
+    # Randomized column: in range, and actually varies (not all equal, and not
+    # equal to the traced/geometric values).
+    rot_on = df_on["rlnAngleRot"].to_numpy(dtype=float)
+    rot_off = df_off["rlnAngleRot"].to_numpy(dtype=float)
+    assert np.all((rot_on >= 0.0) & (rot_on < 360.0))
+    assert np.unique(rot_on).size > 1
+    assert not np.allclose(np.sort(rot_on), np.sort(rot_off))
+
+    # Every other column shared by the two runs is identical. Diff to prove it.
+    shared = [c for c in df_on.columns if c != "rlnAngleRot"]
+    pd.testing.assert_frame_equal(
+        df_off[shared].reset_index(drop=True),
+        df_on[shared].reset_index(drop=True),
+        check_dtype=False,
+    )
+
+
+def test_random_rot_draws_and_prints_a_seed_when_omitted(tmp_path):
+    mask = _write_tube_mask(tmp_path / "mask.mrc")
+    star = tmp_path / "out.star"
+    runner = CliRunner()
+    result = runner.invoke(trace_filaments, [
+        str(mask), "-o", str(star),
+        "--pixel-size", "10", "--min-length", "100", "--min-voxels", "10",
+        "--random-rot",
+    ])
+    assert result.exit_code == 0, result.output
+    assert "random-rot: drew seed" in result.output

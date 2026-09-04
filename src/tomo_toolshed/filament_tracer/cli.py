@@ -45,9 +45,16 @@ from .core import trace_filaments as run_trace
 @click.option("--bild-dir", default=None, type=click.Path(file_okay=False),
               help="Directory for the .bild file (default: alongside --output). "
                    "Only used with --bild.")
+@click.option("--random-rot", is_flag=True, default=False,
+              help="Assign each particle a uniformly random rotation about the "
+                   "filament axis (rlnAngleRot in [0,360)); tilt/psi untouched.")
+@click.option("--seed", type=int, default=None,
+              help="Seed for --random-rot. If omitted, a seed is drawn and "
+                   "printed so the run can be reproduced.")
 def trace_filaments(mask, star_out, pixel_size, spacing_a, min_voxels, min_path_a,
                     smooth_factor, presmooth_window, micrograph, magnification,
-                    group_number, tangent_axis, invert_rot, write_bild_file, bild_dir):
+                    group_number, tangent_axis, invert_rot, write_bild_file, bild_dir,
+                    random_rot, seed):
     """Trace filaments in a binary MASK and export a helical star file.
 
     Separates the mask into 26-connected islands, skeletonizes each, extracts
@@ -76,6 +83,8 @@ def trace_filaments(mask, star_out, pixel_size, spacing_a, min_voxels, min_path_
         invert_rot=invert_rot,
         write_bild_file=write_bild_file,
         bild_path=bild_path,
+        random_rot=random_rot,
+        seed=seed,
         log=click.echo,
     )
 
