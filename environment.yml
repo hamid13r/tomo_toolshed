@@ -12,5 +12,8 @@ dependencies:
   - matplotlib
   - mrcfile
   - connected-components-3d
+  - networkx
   - pytest
   - pip
+  - pip:
+      - starfile

@@ -21,6 +21,8 @@ dependencies = [
     "mrcfile",
     "connected-components-3d",
     "matplotlib",
+    "starfile",
+    "networkx",
 ]
 
 [project.optional-dependencies]

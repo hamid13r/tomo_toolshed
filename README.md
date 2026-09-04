@@ -35,6 +35,7 @@ pip install -e .
 | `tomo_toolshed skipped-views` | Prune skipped etomo views from WarpTools tilt-series XML by updating `UseTilt` from `taSolution.log` (with optional dose/tilt selection). | [docs/skipped_views.md](docs/skipped_views.md) |
 | `tomo_toolshed curate` | Interactive GUI to review and clean a 3D segmentation over a tomogram, then export a curated binary mask. | [docs/segmentation_curator.md](docs/segmentation_curator.md) |
 | `tomo_toolshed add-defocus` | Fill in the placeholder `_rlnDefocus` column of an IsoNet star file with the average CTF defocus from the matching Warp XML files. | [docs/add_defocus.md](docs/add_defocus.md) |
+| `tomo_toolshed trace-filaments` | Trace filaments in a binary segmentation mask and export a RELION-style helical star file of evenly spaced particles (optional ChimeraX `.bild` overlay). | [docs/filament_tracer.md](docs/filament_tracer.md) |
 
 ## Development
 
