@@ -89,6 +89,11 @@ background voxels are **fully transparent**.
 window over the grayscale tomogram live. This only changes how the tomogram is
 displayed — it never affects the segmentation or the exported mask.
 
+**Overlay opacity:** the `opacity` slider (below the contrast sliders) sets the
+alpha of the island color overlay, from `0` (overlay hidden, bare tomogram) to
+`1` (opaque). Display-only; the yellow highlight and the exported mask are
+unaffected.
+
 ## Buttons & boxes
 
 - **Z min / Z max + Apply Z-range** — zero all voxels outside `[z_min, z_max]`,
@@ -106,6 +111,10 @@ displayed — it never affects the segmentation or the exported mask.
   **yellow**. The info line shows `Island {id}: {size} vox` for the highlighted
   island, plus `Smallest: {id} ({size} vox)` and `Largest: {id} ({size} vox)`
   for the current smallest/largest selected islands — handy for jumping to dust.
+- **◀ / ▶** (either side of the Island ID box) — step to the previous/next
+  island and go there, exactly as if you had typed its id and pressed **Go To**.
+  Ids missing from the volume (after filtering or morphology) are skipped, and
+  stepping wraps around at both ends. The status line shows `{position}/{total}`.
 - **Toggle** — add/remove the Island-ID island from the selection (same as
   clicking it in a view).
 - **Renumber** — remap the selected islands to a contiguous `1..N`.

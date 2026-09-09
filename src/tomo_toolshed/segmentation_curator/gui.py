@@ -11,6 +11,7 @@ fixed Z); the right panel is the Y view (a Z-X plane at fixed Y).
 
 from __future__ import annotations
 
+import bisect
 from typing import Optional, Set
 
 import numpy as np
@@ -55,6 +56,8 @@ class SegmentationCuratorGUI:
         self.color_mode = "number" if color_by_number else "green"
         self.highlight_id: Optional[int] = None
         self.show_labels = True
+        # Overlay opacity for the selected-island color layer (0 = invisible).
+        self.overlay_alpha = 0.5
         # Display contrast window (over the uint8-normalized tomogram, 0..255).
         self.vmin = 0
         self.vmax = 255
@@ -145,6 +148,14 @@ class SegmentationCuratorGUI:
         self.s_cmin.on_changed(self._on_contrast)
         self.s_cmax.on_changed(self._on_contrast)
 
+        # Overlay opacity (display-only alpha of the label color layer).
+        self.fig.text(0.62, 0.303, "Overlay (display):", fontsize=9)
+        ax_alpha = self.fig.add_axes([0.72, 0.280, 0.20, 0.018])
+        self.s_alpha = self._Slider(
+            ax_alpha, "opacity", 0.0, 1.0, valinit=self.overlay_alpha, valstep=0.05
+        )
+        self.s_alpha.on_changed(self._on_opacity)
+
         # ---- Control panel (bottom) -------------------------------------
         def _ax(x, y, w, h):
             return self.fig.add_axes([x, y, w, h])
@@ -166,13 +177,19 @@ class SegmentationCuratorGUI:
         self.b_erode = self._Button(_ax(0.53, 0.26, 0.07, 0.035), "Erode")
         self.b_erode.on_clicked(self._on_erode)
 
-        # Row 3: go-to / highlight / color mode.
-        self.tb_island = self._TextBox(_ax(0.08, 0.21, 0.05, 0.035), "Island ID ", initial="1")
-        self.b_goto = self._Button(_ax(0.14, 0.21, 0.06, 0.035), "Go To")
+        # Row 3: go-to / highlight / color mode. The island-id box is flanked by
+        # prev/next buttons that step to the neighbouring island and go there.
+        self.fig.text(0.045, 0.221, "Island ID", fontsize=9)
+        self.b_prev = self._Button(_ax(0.095, 0.21, 0.028, 0.035), "\u25c0")
+        self.b_prev.on_clicked(self._on_prev_island)
+        self.tb_island = self._TextBox(_ax(0.128, 0.21, 0.045, 0.035), "", initial="1")
+        self.b_next = self._Button(_ax(0.178, 0.21, 0.028, 0.035), "\u25b6")
+        self.b_next.on_clicked(self._on_next_island)
+        self.b_goto = self._Button(_ax(0.215, 0.21, 0.06, 0.035), "Go To")
         self.b_goto.on_clicked(self._on_goto)
-        self.b_toggle = self._Button(_ax(0.21, 0.21, 0.07, 0.035), "Toggle")
+        self.b_toggle = self._Button(_ax(0.285, 0.21, 0.07, 0.035), "Toggle")
         self.b_toggle.on_clicked(self._on_toggle_button)
-        self.b_color = self._Button(_ax(0.29, 0.21, 0.13, 0.035), self._color_button_label())
+        self.b_color = self._Button(_ax(0.365, 0.21, 0.13, 0.035), self._color_button_label())
         self.b_color.on_clicked(self._on_toggle_color)
 
         # Row 4: selection ops.
@@ -204,14 +221,18 @@ class SegmentationCuratorGUI:
     def _z_overlay(self):
         sl = self.labels[self.z_idx]
         if self.color_mode == "green":
-            return colormaps.green_overlay(sl, self.selected)
-        return colormaps.numbered_overlay(sl, self.selected, self.label_colors)
+            return colormaps.green_overlay(sl, self.selected, alpha=self.overlay_alpha)
+        return colormaps.numbered_overlay(
+            sl, self.selected, self.label_colors, alpha=self.overlay_alpha
+        )
 
     def _y_overlay(self):
         sl = self.labels[:, self.y_idx]
         if self.color_mode == "green":
-            return colormaps.green_overlay(sl, self.selected)
-        return colormaps.numbered_overlay(sl, self.selected, self.label_colors)
+            return colormaps.green_overlay(sl, self.selected, alpha=self.overlay_alpha)
+        return colormaps.numbered_overlay(
+            sl, self.selected, self.label_colors, alpha=self.overlay_alpha
+        )
 
     def _refresh_images(self):
         self._artists["z_base"].set_data(self.tomo[self.z_idx])
@@ -342,6 +363,12 @@ class SegmentationCuratorGUI:
         self._artists["y_base"].set_clim(self.vmin, self.vmax)
         self.fig.canvas.draw_idle()
 
+    def _on_opacity(self, val):
+        self.overlay_alpha = float(val)
+        self._artists["z_over"].set_data(self._z_overlay())
+        self._artists["y_over"].set_data(self._y_overlay())
+        self.fig.canvas.draw_idle()
+
     def _parse_int(self, textbox, default):
         try:
             return int(float(textbox.text))
@@ -378,7 +405,9 @@ class SegmentationCuratorGUI:
         self._full_refresh(f"Eroded (r={r}, it={it}); relabeled to {self.n} islands.")
 
     def _on_goto(self, _event):
-        iid = self._parse_int(self.tb_island, 0)
+        self._goto_island(self._parse_int(self.tb_island, 0))
+
+    def _goto_island(self, iid: int, msg: str = None):
         if iid <= 0 or iid > self.n or iid not in self.bboxes:
             self._full_refresh(f"Island {iid} not found.")
             return
@@ -388,7 +417,34 @@ class SegmentationCuratorGUI:
         # Move sliders without re-triggering a double refresh loop.
         self.s_z.set_val(zc)
         self.s_y.set_val(yc)
-        self._full_refresh(f"Went to island {iid}; highlighted in yellow.")
+        self._full_refresh(msg or f"Went to island {iid}; highlighted in yellow.")
+
+    def _on_prev_island(self, _event):
+        self._step_island(-1)
+
+    def _on_next_island(self, _event):
+        self._step_island(+1)
+
+    def _step_island(self, step: int):
+        """Move the island-id box to the neighbouring island and go there.
+
+        Steps over ids that are actually present in the volume (``bboxes`` can
+        have gaps after filtering/morphology) and wraps around at both ends.
+        """
+        ids = sorted(i for i in self.bboxes if 1 <= i <= self.n)
+        if not ids:
+            self._full_refresh("No islands to step to.")
+            return
+        cur = self._parse_int(self.tb_island, 0)
+        if step > 0:
+            idx = bisect.bisect_right(ids, cur)
+            idx = 0 if idx >= len(ids) else idx
+        else:
+            idx = bisect.bisect_left(ids, cur) - 1
+            idx = len(ids) - 1 if idx < 0 else idx
+        iid = ids[idx]
+        self.tb_island.set_val(str(iid))
+        self._goto_island(iid, f"Island {iid} ({idx + 1}/{len(ids)}); highlighted in yellow.")
 
     def _on_toggle_button(self, _event):
         iid = self._parse_int(self.tb_island, 0)
