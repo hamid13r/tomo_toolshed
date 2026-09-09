@@ -1,130 +1,68 @@
-# Removing Skipped Views in etomo from WarpTools
+# tomo_toolshed
 
-A Python utility for processing XML files in cryo-electron tomography workflows, specifically designed to update `UseTilt` values based on tilt alignment solutions from WARP.
+A small, growing collection of **lightweight cryo-ET file/CLI tools** — etomo and
+WarpTools helpers, segmentation curation, and more to come — all installed at
+once and exposed as subcommands of a single `tomo_toolshed` command. Every tool
+here is intentionally lightweight (file/CLI editors, no heavy or GPU deps), so
+one install gets you everything.
 
-## Overview
-
-This tool processes XML files and updates their `UseTilt` values based on data from corresponding `taSolution.log` files. It's particularly useful for:
-
-- Removing skipped views from tilt series based on etomo alignment logs that are created in fine-alignment step
-- Setting specific numbers of views to keep based on dose values, lowest accumulated doses are also the lowest tilts
-- Setting all views to True for testing purposes or just going back to default
-- Batch processing multiple XML files with automatic backups
-
-This is needed when there are views that need to be excluded from the tomogram:
-![Skipping a view with shifted beam](docs/etomo-skip.png)
-
-*Figure: Example of the view that need to be skipped.*
-
-By turning the UseTilt to False for that view, the shadow goes away:
-
-![The tomogram before and after editing the xml file](docs/before-after.png)
-
-*Figure: Result after removing skipped views using this code, the UseTilt section of the xml file is also shown.*
-
-
-
-## Features
-
-- **Automatic backup creation** - Safely backs up original XML files before modification, the backup directory needs to be new to avoid overriding original backups
-- **etomo-based filtering** - Uses `taSolution.log` files to determine which views to keep
-- **Dose-based selection** - Option to keep only the N lowest-dose views
-- **Tilt-based selection** - Option to keep only until a certain amount of tilt from the first view
-- **Batch processing** - Process multiple XML files with customizable patterns
-- **Safety first** - Never overwrites existing backups
-
-## Installation
-
-### Prerequisites
-
-- Python 3.6+
-- Required Python packages:
+## Install
 
 ```bash
-pip install pandas click lxml
+git clone https://github.com/hamid13r/tomo_toolshed.git
+cd tomo_toolshed
+pip install -e .
 ```
 
-### Setup
+This installs the `tomo_toolshed` command. List the available tools with:
 
 ```bash
-git clone https://github.com/yourusername/warp_remove_skipped_views.git
-cd warp_remove_skipped_views
-pip install pandas click lxml
+tomo_toolshed --help
 ```
 
-## Usage
-
-### Basic Commands
+Prefer conda/micromamba? A merged environment is provided:
 
 ```bash
-
-# Process with custom pattern and directories, this would work in the warp_tiltseries directory in the default WarpTools structure
-python remove_skipped_view.py --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --tiltstack-dir tiltstack
-
-# Set all UseTilt values to True
-python remove_skipped_view.py  --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --all-true
-
-# Keep only 20 lowest-dose tilts
-python remove_skipped_view.py --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --n-tilts 20
+micromamba create -f environment.yml -y
+micromamba activate tomo-toolshed
+pip install -e .
 ```
 
-### Command Line Options
+## Tools
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--xml-dir` | `./` | Directory containing XML files to process |
-| `--xml-pattern` | `*.xml` | Glob pattern to match XML files |
-| `--backup-dir` | `backup_xml` | Directory to store XML backups |
-| `--tiltstack-dir` | `tiltstack` | Base directory containing tiltstack logs |
-| `--all-true` | False | Set all UseTilt values to True (ignores log files) |
-| `--n-tilts` | 0 | Keep N lowest-dose views, set others to False |
-| `--max-tilt`| 0 | Keep views up to this tilt from the lowest tilt
+| Command | Description | Docs |
+|---|---|---|
+| `tomo_toolshed skipped-views` | Prune skipped etomo views from WarpTools tilt-series XML by updating `UseTilt` from `taSolution.log` (with optional dose/tilt selection). | [docs/skipped_views.md](docs/skipped_views.md) |
+| `tomo_toolshed curate` | Interactive GUI to review and clean a 3D segmentation over a tomogram, then export a curated binary mask. | [docs/segmentation_curator.md](docs/segmentation_curator.md) |
+| `tomo_toolshed add-defocus` | Fill in the placeholder `_rlnDefocus` column of an IsoNet star file with the average CTF defocus from the matching Warp XML files. | [docs/add_defocus.md](docs/add_defocus.md) |
+| `tomo_toolshed trace-filaments` | Trace filaments in a binary segmentation mask and export a RELION-style helical star file of evenly spaced particles (optional ChimeraX `.bild` overlay). | [docs/filament_tracer.md](docs/filament_tracer.md) |
+| `tomo_toolshed dipole2star` | Collapse manual dipole picks (RELION star or plain 3-column text) into a RELION oriented-particle star file, one output per input. | [docs/dipole2star.md](docs/dipole2star.md) |
 
-## Processing Modes
+## Development
 
-### 1. Log-based Filtering (Default)
-When `--n-tilts 0` (default):
-- Views present in `taSolution.log` → `UseTilt = True`
-- Views not in log → `UseTilt = False`
-
-### 2. Dose-based Selection
-When `--n-tilts > 0`:
-- Sorts tilts by dose values from XML
-- Sets the N lowest-dose tilts to `True`
-- Sets remaining tilts to `False`
-- **Note**: Views not in taSolution.log are always set to `False`
-
-### 3. Dose-based Selection
-When `--n-tilts > 0`:
-- Sorts tilts by dose values from XML
-- Sets the N lowest-dose tilts to `True`
-- Sets remaining tilts to `False`
-- **Note**: Views not in taSolution.log are always set to `False`
-
-
-### 4. All True Mode
-When `--all-true`:
-- Sets all `UseTilt` values to `True`
-- Useful for testing or resetting configurations
-
-## Expected Directory Structure
-
-
+```bash
+pip install -e ".[test]"
+pytest
 ```
-warp_tiltseries/
-├── *.xml                          # XML files to process
-├── backup_xml/                    # Backup directory (auto-created)
-└── tiltstack/                     # Tiltstack made by warp
-    └── [xml_basename]/
-        └── taSolution.log          # each TS done in etomo gets a taSolution.log 
-```
+
+## Adding a tool
+
+The layout is designed so a new lightweight tool is easy to drop in. Convention:
+
+1. **Create a subpackage** under `src/tomo_toolshed/<your_tool>/` with a
+   `cli.py` exposing a `click` command (split heavier logic into a `core.py`,
+   like `skipped_views/` does). Keep any GUI/matplotlib imports lazy so the
+   package stays headless-import-safe.
+2. **Register it** in `src/tomo_toolshed/cli.py`: import the command and add it
+   to the group with `tomo_toolshed.add_command(<cmd>, name="<subcommand>")`.
+   Also add a one-line entry to the group docstring so `tomo_toolshed --help`
+   reads as a useful index.
+3. **Add any new dependencies** to the single `dependencies` list in
+   `pyproject.toml` (and to `environment.yml`). There are deliberately no
+   per-tool extras — one install gets everything.
+4. **Add a docs page** at `docs/<your_tool>.md` and link it from the table above.
+5. **Add tests** under `tests/<your_tool>/`.
 
 ## License
 
-This project is released under a permissive open-source license. You are free to use, modify, and distribute it for any purpose. See the LICENSE file for more information.
-
-## Acknowledgments
-
-- Designed for [WARP2.0](https://github.com/warpem/warp) cryo-electron tomography workflows 
-- Built with pandas, click, and lxml
-- Thanks to Alister Burt and Dimitry Tegunov for the support 
+MIT — see [LICENSE](LICENSE).
