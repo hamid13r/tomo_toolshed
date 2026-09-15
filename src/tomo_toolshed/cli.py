@@ -15,6 +15,7 @@ from .add_defocus.cli import add_defocus
 from .filament_tracer.cli import trace_filaments
 from .dipole2star.cli import dipole2star
 from .write_ebt.cli import write_ebt
+from .duplicate_remover.cli import duplicate_remover
 
 
 # Declare the group name explicitly with underscores so click does not rewrite
@@ -25,12 +26,13 @@ def tomo_toolshed():
     """Lightweight cryo-ET tools, each available as a subcommand.
 
     \b
-    skipped-views    Prune skipped etomo views from WarpTools tilt-series XML.
-    curate           Curate a 3D segmentation over a tomogram and export a mask.
-    add-defocus      Add Warp XML average defocus to an IsoNet star file.
-    trace-filaments  Trace filaments in a mask into a RELION helical star file.
-    dipole2star      Collapse manual dipole picks into an oriented-particle star file.
-    write-ebt        Write an etomo batchruntomo .ebt project from a directory tree.
+    skipped-views      Prune skipped etomo views from WarpTools tilt-series XML.
+    curate             Curate a 3D segmentation over a tomogram and export a mask.
+    add-defocus        Add Warp XML average defocus to an IsoNet star file.
+    trace-filaments    Trace filaments in a mask into a RELION helical star file.
+    dipole2star        Collapse manual dipole picks into an oriented-particle star file.
+    write-ebt          Write an etomo batchruntomo .ebt project from a directory tree.
+    duplicate-remover  Remove particles closer than a distance threshold per group.
     """
 
 
@@ -40,12 +42,17 @@ tomo_toolshed.add_command(add_defocus, name="add-defocus")
 tomo_toolshed.add_command(trace_filaments, name="trace-filaments")
 tomo_toolshed.add_command(dipole2star, name="dipole2star")
 tomo_toolshed.add_command(write_ebt, name="write-ebt")
+tomo_toolshed.add_command(duplicate_remover, name="duplicate-remover")
 
-# Also accept the underscored spelling. It is a hidden copy so it stays out of
-# the --help index while keeping `tomo_toolshed write_ebt` working as typed.
+# Also accept the underscored spellings. Each is a hidden copy so it stays out of
+# the --help index while keeping the underscored command working as typed.
 _write_ebt_alias = copy.copy(write_ebt)
 _write_ebt_alias.hidden = True
 tomo_toolshed.add_command(_write_ebt_alias, name="write_ebt")
+
+_duplicate_remover_alias = copy.copy(duplicate_remover)
+_duplicate_remover_alias.hidden = True
+tomo_toolshed.add_command(_duplicate_remover_alias, name="duplicate_remover")
 
 
 if __name__ == "__main__":
