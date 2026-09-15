@@ -5,6 +5,8 @@ tool: create a subpackage under ``src/tomo_toolshed/`` exposing a click command,
 import it below, and register it with :func:`tomo_toolshed.add_command`.
 """
 
+import copy
+
 import click
 
 from .skipped_views.cli import skipped_views
@@ -12,6 +14,7 @@ from .segmentation_curator.cli import main as curate
 from .add_defocus.cli import add_defocus
 from .filament_tracer.cli import trace_filaments
 from .dipole2star.cli import dipole2star
+from .write_ebt.cli import write_ebt
 
 
 # Declare the group name explicitly with underscores so click does not rewrite
@@ -27,6 +30,7 @@ def tomo_toolshed():
     add-defocus      Add Warp XML average defocus to an IsoNet star file.
     trace-filaments  Trace filaments in a mask into a RELION helical star file.
     dipole2star      Collapse manual dipole picks into an oriented-particle star file.
+    write-ebt        Write an etomo batchruntomo .ebt project from a directory tree.
     """
 
 
@@ -35,6 +39,13 @@ tomo_toolshed.add_command(curate, name="curate")
 tomo_toolshed.add_command(add_defocus, name="add-defocus")
 tomo_toolshed.add_command(trace_filaments, name="trace-filaments")
 tomo_toolshed.add_command(dipole2star, name="dipole2star")
+tomo_toolshed.add_command(write_ebt, name="write-ebt")
+
+# Also accept the underscored spelling. It is a hidden copy so it stays out of
+# the --help index while keeping `tomo_toolshed write_ebt` working as typed.
+_write_ebt_alias = copy.copy(write_ebt)
+_write_ebt_alias.hidden = True
+tomo_toolshed.add_command(_write_ebt_alias, name="write_ebt")
 
 
 if __name__ == "__main__":

@@ -37,6 +37,7 @@ pip install -e .
 | `tomo_toolshed add-defocus` | Fill in the placeholder `_rlnDefocus` column of an IsoNet star file with the average CTF defocus from the matching Warp XML files. | [docs/add_defocus.md](docs/add_defocus.md) |
 | `tomo_toolshed trace-filaments` | Trace filaments in a binary segmentation mask and export a RELION-style helical star file of evenly spaced particles (optional ChimeraX `.bild` overlay). | [docs/filament_tracer.md](docs/filament_tracer.md) |
 | `tomo_toolshed dipole2star` | Collapse manual dipole picks (RELION star or plain 3-column text) into a RELION oriented-particle star file, one output per input. | [docs/dipole2star.md](docs/dipole2star.md) |
+| `tomo_toolshed write-ebt` | Build an etomo batchruntomo `.ebt` project file from a directory of per-tilt-series subdirectories, with Linux or Windows `.st` path styles. | [docs/write_ebt.md](docs/write_ebt.md) |
 
 ## Development
 
