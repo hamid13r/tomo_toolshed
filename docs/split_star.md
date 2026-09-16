@@ -9,8 +9,10 @@ per-tilt-series star files into a single project file.
 
 1. Reads the star file (any block layout) and detects the **flavor**
    (RELION 3/4/5 or M/WarpTools), which it reports.
-2. Detects the grouping column: the first present of `rlnTomoName`,
-   `rlnMicrographName`, `wrpSourceName` (override with `--group-by`).
+2. Chooses the grouping column(s): by default the first present of `rlnTomoName`,
+   `rlnMicrographName`, `wrpSourceName`. `--group-by` overrides this with **any**
+   column and is **repeatable** to split by a combination (see
+   [Grouping by other columns](#grouping-by-other-columns)).
 3. For each distinct group value, writes that group's rows to
    `<outdir>/<label>_<name>/<label>_<name>_all.star`, where `<name>` is the group
    value with a known suffix removed (see [Version-aware naming](#version-aware-naming)).
@@ -65,6 +67,29 @@ EXP_ts_02/
 
 Omit `--label` and there is no prefix (`ts_01/ts_01_all.star`).
 
+## Grouping by other columns
+
+`--group-by` accepts **any** column, not just the name-like ones — e.g. split by
+`rlnClassNumber`, `rlnRandomSubset`, `rlnHelicalTubeID`, or `rlnOpticsGroup`:
+
+```bash
+tomo_toolshed split-star --i run_data.star --group-by rlnRandomSubset --label HALF
+# -> HALF_1/HALF_1_all.star, HALF_2/HALF_2_all.star
+```
+
+Repeat `--group-by` to split by a **combination** — one output per unique tuple of
+values, named `<label>_<val1>_<val2>_...`:
+
+```bash
+tomo_toolshed split-star --i run_data.star \
+    --group-by rlnTomoName --group-by rlnClassNumber --label EXP
+# -> EXP_<tomo>_<class>/EXP_<tomo>_<class>_all.star
+```
+
+The parts are joined with `_`. If two different combinations would collapse to the
+same name (possible because values can themselves contain `_`), the tool **errors
+instead of overwriting** — reorder the columns or split one column per run.
+
 ## Usage
 
 ```bash
@@ -91,15 +116,15 @@ tomo_toolshed split-star --i run_data.star --label EXP --dry-run
 | `--input` (`--i`) | *(required)* | Input star file to split. |
 | `--label` | *(none)* | Prefix added to each output directory and file. Omit for no prefix. |
 | `--outdir` (`-o`) | `.` | Directory to write the per-group subdirectories into. |
-| `--group-by` (`--group_by`) | *(auto)* | Override the grouping column. |
+| `--group-by` (`--group_by`) | *(auto)* | Column to split on; accepts any column and is repeatable to split by a combination. Default: the auto-detected name column. |
 | `--strip-suffix` (`--strip_suffix`) | `.mrc.tomostar`, `.tomostar`, `.mrc`, `.mrc_<pixelsize>Apx.mrc` | Suffix(es) stripped from each group name to form its base name (repeatable; longest match wins; only stripped when it ends the name). Passing this replaces the defaults, including the Warp/M pixel-size pattern. |
 | `--dry-run` | off | List what would be written; create nothing. |
 | `--quiet` / `-q` | off | Only print the final summary. |
 
 ## Behavior notes
 
-- **Groups are written in first-appearance order**; within each group, the rows
-  keep their original order.
+- **Groups (or combinations) are written in first-appearance order**; within each
+  group, the rows keep their original order.
 - **Every row lands in exactly one output** — the groups partition the input.
 - **Existing files are overwritten.**
 - A `--strip-suffix` is only removed when it is a true suffix of the name; a name

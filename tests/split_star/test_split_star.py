@@ -114,7 +114,7 @@ def test_plan_uses_label_prefix_and_all_suffix(tmp_path):
                                "ts_02.mrc.tomostar"])
     blocks, key = core.read_star(str(src))
     plan = core.plan_split(blocks[key], "rlnMicrographName", "EXP", outdir="out")
-    names = [gn for gn, _, _ in plan]
+    names = [combo[0] for combo, _, _ in plan]
     paths = [p for _, p, _ in plan]
     rows = [n for _, _, n in plan]
     assert names == ["ts_01.mrc.tomostar", "ts_02.mrc.tomostar"]   # first-appearance order
@@ -208,6 +208,85 @@ def test_underscored_aliases_still_work(tmp_path):
                                         "--outdir", str(out)])
     assert result.exit_code == 0, result.output
     assert (out / "X_A" / "X_A_all.star").exists()
+
+
+def test_split_by_arbitrary_single_column(tmp_path):
+    # rlnClassNumber is not a name column, but --group-by should accept it.
+    df = pd.DataFrame({
+        "rlnCoordinateX": [1.0, 2.0, 3.0, 4.0],
+        "rlnMicrographName": ["a.mrc.tomostar"] * 4,
+        "rlnClassNumber": [1, 2, 1, 2],
+    })
+    src = tmp_path / "in.star"
+    starfile.write(df, str(src), overwrite=True)
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, ["--i", str(src), "--label", "C",
+                                        "--group-by", "rlnClassNumber",
+                                        "--outdir", str(out)])
+    assert result.exit_code == 0, result.output
+    assert len(starfile.read(str(out / "C_1" / "C_1_all.star"))) == 2
+    assert len(starfile.read(str(out / "C_2" / "C_2_all.star"))) == 2
+
+
+def test_split_by_multiple_columns_uses_combinations(tmp_path):
+    df = pd.DataFrame({
+        "rlnCoordinateX": [1.0, 2.0, 3.0, 4.0, 5.0],
+        "rlnTomoName": ["A.mrc.tomostar", "A.mrc.tomostar", "A.mrc.tomostar",
+                        "B.mrc.tomostar", "B.mrc.tomostar"],
+        "rlnClassNumber": [1, 2, 1, 1, 2],
+    })
+    src = tmp_path / "in.star"
+    starfile.write(df, str(src), overwrite=True)
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, [
+        "--i", str(src), "--label", "X",
+        "--group-by", "rlnTomoName", "--group-by", "rlnClassNumber",
+        "--outdir", str(out),
+    ])
+    assert result.exit_code == 0, result.output
+    # Combinations: A/1 (2 rows), A/2 (1), B/1 (1), B/2 (1). Name = <label>_<A>_<class>.
+    assert len(starfile.read(str(out / "X_A_1" / "X_A_1_all.star"))) == 2
+    assert len(starfile.read(str(out / "X_A_2" / "X_A_2_all.star"))) == 1
+    assert len(starfile.read(str(out / "X_B_1" / "X_B_1_all.star"))) == 1
+    assert len(starfile.read(str(out / "X_B_2" / "X_B_2_all.star"))) == 1
+    # Every row landed exactly once.
+    total = sum(len(starfile.read(str(p))) for p in out.rglob("*_all.star"))
+    assert total == 5
+
+
+def test_colliding_multi_column_names_are_rejected(tmp_path):
+    # ("x", "y_z") and ("x_y", "z") both join to "x_y_z": must error, not overwrite.
+    df = pd.DataFrame({
+        "rlnCoordinateX": [1.0, 2.0],
+        "colA": ["x", "x_y"],
+        "colB": ["y_z", "z"],
+    })
+    src = tmp_path / "in.star"
+    starfile.write(df, str(src), overwrite=True)
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, [
+        "--i", str(src), "--group-by", "colA", "--group-by", "colB",
+        "--outdir", str(out),
+    ])
+    assert result.exit_code != 0
+    assert "collid" in result.output.lower()
+    assert not out.exists()
+
+
+def test_multiple_group_by_bad_column_is_a_clean_error(tmp_path):
+    df = pd.DataFrame({"rlnCoordinateX": [1.0], "rlnTomoName": ["A.mrc.tomostar"]})
+    src = tmp_path / "in.star"
+    starfile.write(df, str(src), overwrite=True)
+    runner = CliRunner()
+    result = runner.invoke(split_star, [
+        "--i", str(src), "--group-by", "rlnTomoName", "--group-by", "nope",
+        "--outdir", str(tmp_path / "out"),
+    ])
+    assert result.exit_code != 0
+    assert "nope" in result.output
 
 
 def test_missing_group_column_is_a_clean_error(tmp_path):

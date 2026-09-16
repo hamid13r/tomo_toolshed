@@ -15,9 +15,9 @@ from .core import (
     STRIP_PATTERN_LABEL,
     SplitStarError,
     detect_flavor,
-    detect_group_column,
     plan_split,
     read_star,
+    resolve_group_columns,
     write_group,
 )
 
@@ -32,8 +32,11 @@ from .core import (
 @click.option("--outdir", "-o", default=".", show_default=True,
               type=click.Path(file_okay=False),
               help="Directory to write the per-group subdirectories into.")
-@click.option("--group-by", "--group_by", "group_by", default=None,
-              help="Override the auto-detected grouping column.")
+@click.option("--group-by", "--group_by", "group_by", multiple=True,
+              help="Column to split on (repeatable). Any column works, not just "
+                   "the name-like ones; repeat it to split by the combination "
+                   "(e.g. --group-by rlnTomoName --group-by rlnClassNumber). "
+                   "Default: the auto-detected name column.")
 @click.option("--strip-suffix", "--strip_suffix", "strip_suffix", multiple=True,
               help="Suffix stripped from each group name to form its "
                    "directory/file base name (repeatable, longest match wins). "
@@ -47,15 +50,17 @@ from .core import (
 def split_star(input_path, label, outdir, group_by, strip_suffix, dry_run, quiet):
     """Split a star file into one star file per group.
 
-    Each group (tomogram/micrograph/source) is written to
-    ``<outdir>/<label>_<name>/<label>_<name>_all.star``, carrying through any
-    optics/general blocks. The grouping column is auto-detected (rlnTomoName,
-    then rlnMicrographName, then wrpSourceName) unless --group-by is given.
+    Each group is written to ``<outdir>/<label>_<name>/<label>_<name>_all.star``,
+    carrying through any optics/general blocks. The grouping column is
+    auto-detected (rlnTomoName, then rlnMicrographName, then wrpSourceName) unless
+    --group-by is given; --group-by accepts any column and is repeatable, so you
+    can split by a combination (one file per unique tuple of values).
 
     \b
     example:
     tomo_toolshed split-star --i run_data.star --label EXP
     tomo_toolshed split-star --i picks.star --group-by rlnTomoName --outdir split
+    tomo_toolshed split-star --i run_data.star --group-by rlnTomoName --group-by rlnClassNumber
     """
     # Explicit --strip-suffix takes full control (patterns off); otherwise use the
     # built-in defaults, which include the .mrc_<pixelsize>Apx.mrc pattern.
@@ -70,19 +75,32 @@ def split_star(input_path, label, outdir, group_by, strip_suffix, dry_run, quiet
         blocks, part_key = read_star(input_path)
         particles = blocks[part_key]
         flavor = detect_flavor(blocks, particles)
-        group_column = detect_group_column(particles, group_by)
-        plan = plan_split(particles, group_column, label, outdir=outdir,
+        group_columns = resolve_group_columns(particles, group_by)
+        plan = plan_split(particles, group_columns, label, outdir=outdir,
                           strip_suffixes=strip_suffixes,
                           strip_patterns=strip_patterns)
     except SplitStarError as exc:
         raise click.ClickException(str(exc))
 
+    # Guard against two different column combinations collapsing to the same
+    # output name (possible with multi-column splits joined by '_'), which would
+    # silently overwrite one group's file with another's.
+    from collections import Counter
+    counts = Counter(output_path for _, output_path, _ in plan)
+    collisions = sorted(p for p, c in counts.items() if c > 1)
+    if collisions:
+        raise click.ClickException(
+            "grouping produces colliding output names (would overwrite):\n  "
+            + "\n  ".join(collisions)
+            + "\nUse a different --group-by order/columns or split in one column "
+              "per run.")
+
     if not quiet:
-        click.echo(f"input:           {input_path}")
-        click.echo(f"detected flavor: {flavor}")
-        click.echo(f"grouping column: {group_column} ({len(plan)} groups)")
-        click.echo(f"name stripping:  {stripping_report}")
-        click.echo(f"output root:     {outdir}")
+        click.echo(f"input:            {input_path}")
+        click.echo(f"detected flavor:  {flavor}")
+        click.echo(f"grouping columns: {', '.join(group_columns)} ({len(plan)} groups)")
+        click.echo(f"name stripping:   {stripping_report}")
+        click.echo(f"output root:      {outdir}")
         click.echo("")
 
     if dry_run:
@@ -92,9 +110,9 @@ def split_star(input_path, label, outdir, group_by, strip_suffix, dry_run, quiet
         return
 
     total = 0
-    for group_name, output_path, _ in plan:
-        n = write_group(blocks, part_key, particles, group_column,
-                        group_name, output_path)
+    for combo, output_path, _ in plan:
+        n = write_group(blocks, part_key, particles, group_columns,
+                        combo, output_path)
         total += n
         if not quiet:
             click.echo(f"  {n} row(s) -> {output_path}")

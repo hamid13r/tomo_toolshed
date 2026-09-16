@@ -16,6 +16,7 @@ out as a single unnamed block.
 import os
 import re
 
+import numpy as np
 import pandas as pd
 import starfile
 
@@ -86,8 +87,8 @@ def particles_key(blocks):
 
 
 def detect_group_column(particles, override=None):
-    """Return the grouping column: ``override`` if given (and present), else the
-    first of :data:`GROUP_COLUMN_CANDIDATES` present in ``particles``."""
+    """Return a single grouping column: ``override`` if given (and present), else
+    the first of :data:`GROUP_COLUMN_CANDIDATES` present in ``particles``."""
     if override is not None:
         if override not in particles.columns:
             raise SplitStarError(
@@ -99,6 +100,24 @@ def detect_group_column(particles, override=None):
     raise SplitStarError(
         "no grouping column found (looked for "
         f"{', '.join(GROUP_COLUMN_CANDIDATES)}); pass --group-by")
+
+
+def resolve_group_columns(particles, overrides=None):
+    """Return the list of grouping columns to split on.
+
+    With one or more ``overrides`` (any columns, not just the name-like ones),
+    the file is split by the **combination** of their values -- one output per
+    unique tuple. With no override, a single column is auto-detected via
+    :func:`detect_group_column`.
+    """
+    if overrides:
+        columns = list(overrides)
+        missing = [c for c in columns if c not in particles.columns]
+        if missing:
+            raise SplitStarError(
+                f"--group-by column(s) {missing} not in the star file")
+        return columns
+    return [detect_group_column(particles)]
 
 
 def group_dirname(group_name, strip_suffixes=DEFAULT_STRIP_SUFFIXES,
@@ -126,33 +145,69 @@ def group_dirname(group_name, strip_suffixes=DEFAULT_STRIP_SUFFIXES,
     return name[: -best] if best else name
 
 
-def plan_split(particles, group_column, label, outdir=".",
+def _as_columns(group_columns):
+    """Normalize a column argument (a string or a sequence) to a list."""
+    if isinstance(group_columns, str):
+        return [group_columns]
+    return list(group_columns)
+
+
+def _combo_mask(particles, group_columns, combo):
+    """Boolean mask of rows whose ``group_columns`` equal the tuple ``combo``."""
+    mask = np.ones(len(particles), dtype=bool)
+    for column, value in zip(group_columns, combo):
+        mask &= (particles[column].to_numpy() == value)
+    return mask
+
+
+def combo_basename(combo, label, strip_suffixes=DEFAULT_STRIP_SUFFIXES,
+                   strip_patterns=DEFAULT_STRIP_PATTERNS):
+    """Build the base name for one group combination.
+
+    Each column value is cleaned with :func:`group_dirname` (so filename-like
+    values lose their suffix) and the parts are joined with ``_``; ``label`` is
+    prefixed as ``<label>_`` when non-empty. For a single column this is exactly
+    the old ``<label>_<name>``.
+    """
+    parts = [group_dirname(value, strip_suffixes, strip_patterns) for value in combo]
+    prefix = f"{label}_" if label else ""
+    return prefix + "_".join(parts)
+
+
+def plan_split(particles, group_columns, label, outdir=".",
                strip_suffixes=DEFAULT_STRIP_SUFFIXES,
                strip_patterns=DEFAULT_STRIP_PATTERNS):
-    """Return the list of ``(group_name, output_path, n_rows)`` to be written.
+    """Return the list of ``(combo, output_path, n_rows)`` to be written.
 
-    Groups are taken in first-appearance order. ``label`` is prefixed as
-    ``<label>_`` when non-empty; when empty/None there is no prefix (the original
-    always prefixed, producing a stray ``None_`` when no label was given).
+    ``group_columns`` may be a single column name or a list; splitting is by the
+    combination of their values, one entry per unique tuple, in first-appearance
+    order. ``label`` is prefixed as ``<label>_`` when non-empty; when empty/None
+    there is no prefix (the original always prefixed, producing a stray ``None_``
+    when no label was given).
     """
-    prefix = f"{label}_" if label else ""
+    group_columns = _as_columns(group_columns)
+    prefix_len = len(group_columns)
     plan = []
-    for group_name in pd.unique(particles[group_column].to_numpy()):
-        base = prefix + group_dirname(group_name, strip_suffixes, strip_patterns)
-        n_rows = int((particles[group_column] == group_name).sum())
+    # drop_duplicates keeps first occurrence and preserves row order.
+    combos = particles[group_columns].drop_duplicates().to_numpy()
+    for row in combos:
+        combo = tuple(row[:prefix_len])
+        base = combo_basename(combo, label, strip_suffixes, strip_patterns)
+        n_rows = int(_combo_mask(particles, group_columns, combo).sum())
         output_path = os.path.join(outdir, base, base + "_all.star")
-        plan.append((group_name, output_path, n_rows))
+        plan.append((combo, output_path, n_rows))
     return plan
 
 
-def write_group(blocks, part_key, particles, group_column, group_name, output_path):
-    """Write one group's rows to ``output_path``, preserving other input blocks.
+def write_group(blocks, part_key, particles, group_columns, combo, output_path):
+    """Write one group combination's rows to ``output_path``, preserving blocks.
 
     Every non-particles block (optics, general, ...) is carried through unchanged
     and in order; a single-unnamed-block input yields a single-unnamed-block
     output.
     """
-    subset = particles[particles[group_column] == group_name]
+    group_columns = _as_columns(group_columns)
+    subset = particles[_combo_mask(particles, group_columns, combo)]
     out = dict(blocks)
     out[part_key] = subset
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
