@@ -70,16 +70,24 @@ def test_no_grouping_column_is_an_error():
 
 
 @pytest.mark.parametrize("name,expected", [
-    ("ts_01.mrc.tomostar", "ts_01"),
-    ("weird_name", "weird_name"),
+    ("ts_01.mrc.tomostar", "ts_01"),                    # RELION 4
+    ("Position_1_2.tomostar", "Position_1_2"),          # RELION 5 / M
+    ("foo_microtubule.mrc", "foo_microtubule"),         # RELION 3
+    ("weird_name", "weird_name"),                       # nothing to strip
     ("a.mrc.tomostar.extra", "a.mrc.tomostar.extra"),   # suffix not at the end
 ])
-def test_group_dirname_strips_default_suffix(name, expected):
+def test_group_dirname_strips_default_suffixes_by_flavor(name, expected):
     assert core.group_dirname(name) == expected
 
 
+def test_group_dirname_longest_suffix_wins():
+    # .mrc.tomostar must win over .tomostar so the base is not left as 'x.mrc'.
+    assert core.group_dirname("x.mrc.tomostar") == "x"
+
+
 def test_group_dirname_custom_suffix():
-    assert core.group_dirname("ts_01.mrc", strip_suffix=".mrc") == "ts_01"
+    assert core.group_dirname("ts_01.mrc", strip_suffixes=".mrc") == "ts_01"
+    assert core.group_dirname("ts_01.xyz", strip_suffixes=[".xyz"]) == "ts_01"
 
 
 # ---------------------------------------------------------------------------
@@ -207,3 +215,29 @@ def test_custom_strip_suffix(tmp_path):
                                         "--strip-suffix", ".mrc"])
     assert result.exit_code == 0, result.output
     assert (out / "X_ts_01" / "X_ts_01_all.star").exists()
+
+
+@pytest.mark.parametrize("flavor_col,value,flavor,expected_dir", [
+    # RELION 5 / M names end .tomostar; RELION 3 micrographs end .mrc.
+    ("rlnTomoName", "Position_1.tomostar", "relion3", "Position_1"),
+    ("rlnMicrographName", "ts_007.mrc", "relion3", "ts_007"),
+])
+def test_default_stripping_is_version_appropriate(flavor_col, value, flavor,
+                                                   expected_dir, tmp_path):
+    df = pd.DataFrame({"rlnCoordinateX": [1.0], flavor_col: [value]})
+    src = tmp_path / "in.star"
+    starfile.write(df, str(src), overwrite=True)
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, ["--i", str(src), "--outdir", str(out)])
+    assert result.exit_code == 0, result.output
+    assert (out / expected_dir / f"{expected_dir}_all.star").exists()
+
+
+def test_flavor_is_detected_and_reported():
+    # RELION 5 sample lives with the duplicate-remover fixtures.
+    r5 = Path(__file__).parent.parent / "duplicate_remover" / "relion_5_2D_example.star"
+    if not r5.exists():
+        pytest.skip("relion_5 sample not available")
+    blocks, key = core.read_star(str(r5))
+    assert core.detect_flavor(blocks, blocks[key]) == core.FLAVOR_RELION5

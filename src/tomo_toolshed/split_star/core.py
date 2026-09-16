@@ -14,6 +14,7 @@ out as a single unnamed block.
 """
 
 import os
+import re
 
 import pandas as pd
 import starfile
@@ -26,9 +27,36 @@ class SplitStarError(ValueError):
 # Same precedence as the sibling tools: first present is used unless overridden.
 GROUP_COLUMN_CANDIDATES = ("rlnTomoName", "rlnMicrographName", "wrpSourceName")
 
-# The original stripped this exact suffix from each micrograph name to form the
-# output directory name; kept as the default, overridable in the CLI.
-DEFAULT_STRIP_SUFFIX = ".mrc.tomostar"
+# Different star-file versions name their groups differently -- RELION 4
+# micrographs end ``.mrc.tomostar``, RELION 5 / M sources end ``.tomostar``, and
+# RELION 3 micrographs end ``.mrc``. All of these are stripped by default (longest
+# match first) so directory names come out clean regardless of flavor.
+DEFAULT_STRIP_SUFFIXES = (".mrc.tomostar", ".tomostar", ".mrc")
+
+# Flavor identifiers (same scheme as the duplicate-remover tool).
+FLAVOR_RELION3 = "relion3"
+FLAVOR_RELION4 = "relion4"
+FLAVOR_RELION5 = "relion5"
+FLAVOR_M = "m"
+
+_WRP_COORD_RE = re.compile(r"^wrpCoordinateX(\d+)$")
+
+
+def detect_flavor(blocks, particles):
+    """Classify the file into one of the four star flavors from its blocks/columns.
+
+    This does not change how splitting works (that only needs the grouping
+    column), but it lets the CLI report which flavor it recognised, matching the
+    duplicate-remover tool.
+    """
+    if any(_WRP_COORD_RE.match(c) for c in particles.columns):
+        return FLAVOR_M
+    optics = blocks.get("optics")
+    if isinstance(optics, pd.DataFrame):
+        if "rlnTomoTiltSeriesPixelSize" in optics.columns:
+            return FLAVOR_RELION5
+        return FLAVOR_RELION4
+    return FLAVOR_RELION3
 
 
 def read_star(path):
@@ -66,20 +94,24 @@ def detect_group_column(particles, override=None):
         f"{', '.join(GROUP_COLUMN_CANDIDATES)}); pass --group-by")
 
 
-def group_dirname(group_name, strip_suffix=DEFAULT_STRIP_SUFFIX):
+def group_dirname(group_name, strip_suffixes=DEFAULT_STRIP_SUFFIXES):
     """Turn a group value into a directory-safe base name.
 
-    Strips ``strip_suffix`` (if present) from the end -- matching the original,
-    which removed ``.mrc.tomostar`` -- and leaves the rest untouched.
+    Strips the first matching suffix in ``strip_suffixes`` (tried longest first,
+    so ``.mrc.tomostar`` wins over ``.tomostar``) from the end of the name and
+    leaves the rest untouched. A single string is accepted for convenience.
     """
     name = str(group_name)
-    if strip_suffix and name.endswith(strip_suffix):
-        name = name[: -len(strip_suffix)]
+    if isinstance(strip_suffixes, str):
+        strip_suffixes = (strip_suffixes,)
+    for suffix in sorted((s for s in strip_suffixes if s), key=len, reverse=True):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
     return name
 
 
 def plan_split(particles, group_column, label, outdir=".",
-               strip_suffix=DEFAULT_STRIP_SUFFIX):
+               strip_suffixes=DEFAULT_STRIP_SUFFIXES):
     """Return the list of ``(group_name, output_path, n_rows)`` to be written.
 
     Groups are taken in first-appearance order. ``label`` is prefixed as
@@ -89,7 +121,7 @@ def plan_split(particles, group_column, label, outdir=".",
     prefix = f"{label}_" if label else ""
     plan = []
     for group_name in pd.unique(particles[group_column].to_numpy()):
-        base = prefix + group_dirname(group_name, strip_suffix)
+        base = prefix + group_dirname(group_name, strip_suffixes)
         n_rows = int((particles[group_column] == group_name).sum())
         output_path = os.path.join(outdir, base, base + "_all.star")
         plan.append((group_name, output_path, n_rows))

@@ -7,15 +7,43 @@ per-tilt-series star files into a single project file.
 
 ## What it does
 
-1. Reads the star file (any block layout).
+1. Reads the star file (any block layout) and detects the **flavor**
+   (RELION 3/4/5 or M/WarpTools), which it reports.
 2. Detects the grouping column: the first present of `rlnTomoName`,
    `rlnMicrographName`, `wrpSourceName` (override with `--group-by`).
 3. For each distinct group value, writes that group's rows to
    `<outdir>/<label>_<name>/<label>_<name>_all.star`, where `<name>` is the group
-   value with `--strip-suffix` (default `.mrc.tomostar`) removed.
+   value with a known suffix removed (see [Version-aware naming](#version-aware-naming)).
 4. Any non-particles blocks (`optics`, `general`) are carried through into every
    output, so multi-block RELION 4/5 files split into valid RELION files; a
    single-unnamed-block input yields single-unnamed-block outputs.
+
+## Star flavors
+
+Like `duplicate-remover`, this works across star versions — the flavor is detected
+and reported, and each version's grouping/naming convention is handled:
+
+| Flavor | Blocks | Grouping column | Group names end in |
+|---|---|---|---|
+| RELION 3 | one unnamed `data_` | `rlnMicrographName` | `.mrc` |
+| RELION 4 | `optics` + `particles` | `rlnMicrographName` | `.mrc.tomostar` |
+| RELION 5 | `general` + `optics` + `particles` | `rlnTomoName` | `.tomostar` |
+| M / WarpTools | one unnamed `data_` | `wrpSourceName` | `.tomostar` |
+
+## Version-aware naming
+
+Because each version names its groups differently, the base name is formed by
+stripping the **first matching** of these suffixes (longest first), so directory
+names come out clean regardless of flavor:
+
+```
+.mrc.tomostar   →  ts_001.mrc.tomostar    → ts_001     (RELION 4)
+.tomostar       →  Position_1.tomostar    → Position_1 (RELION 5 / M)
+.mrc            →  foo_microtubule.mrc    → foo_microtubule (RELION 3)
+```
+
+Override with one or more `--strip-suffix` values; a name that matches none is used
+unchanged.
 
 ## Directory layout produced
 
@@ -58,7 +86,7 @@ tomo_toolshed split-star --i run_data.star --label EXP --dry-run
 | `--label` | *(none)* | Prefix added to each output directory and file. Omit for no prefix. |
 | `--outdir` (`-o`) | `.` | Directory to write the per-group subdirectories into. |
 | `--group-by` (`--group_by`) | *(auto)* | Override the grouping column. |
-| `--strip-suffix` (`--strip_suffix`) | `.mrc.tomostar` | Suffix stripped from each group name to form its base name (only when it is at the end of the name). |
+| `--strip-suffix` (`--strip_suffix`) | `.mrc.tomostar`, `.tomostar`, `.mrc` | Suffix(es) stripped from each group name to form its base name (repeatable; longest match wins; only stripped when it ends the name). |
 | `--dry-run` | off | List what would be written; create nothing. |
 | `--quiet` / `-q` | off | Only print the final summary. |
 
@@ -68,5 +96,5 @@ tomo_toolshed split-star --i run_data.star --label EXP --dry-run
   keep their original order.
 - **Every row lands in exactly one output** — the groups partition the input.
 - **Existing files are overwritten.**
-- The `--strip-suffix` is only removed when it is a true suffix of the name; a name
-  that does not end with it is used unchanged (so mixed inputs are safe).
+- A `--strip-suffix` is only removed when it is a true suffix of the name; a name
+  that ends with none of them is used unchanged (so mixed inputs are safe).

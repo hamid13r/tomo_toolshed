@@ -10,8 +10,9 @@ from pathlib import Path
 import click
 
 from .core import (
-    DEFAULT_STRIP_SUFFIX,
+    DEFAULT_STRIP_SUFFIXES,
     SplitStarError,
+    detect_flavor,
     detect_group_column,
     plan_split,
     read_star,
@@ -31,10 +32,10 @@ from .core import (
               help="Directory to write the per-group subdirectories into.")
 @click.option("--group-by", "--group_by", "group_by", default=None,
               help="Override the auto-detected grouping column.")
-@click.option("--strip-suffix", "--strip_suffix", "strip_suffix",
-              default=DEFAULT_STRIP_SUFFIX, show_default=True,
+@click.option("--strip-suffix", "--strip_suffix", "strip_suffix", multiple=True,
               help="Suffix stripped from each group name to form its "
-                   "directory/file base name.")
+                   "directory/file base name (repeatable, longest match wins). "
+                   f"Default: {', '.join(DEFAULT_STRIP_SUFFIXES)}.")
 @click.option("--dry-run", is_flag=True, default=False,
               help="List what would be written; create nothing.")
 @click.option("--quiet", "-q", is_flag=True, default=False,
@@ -52,18 +53,23 @@ def split_star(input_path, label, outdir, group_by, strip_suffix, dry_run, quiet
     tomo_toolshed split-star --i run_data.star --label EXP
     tomo_toolshed split-star --i picks.star --group-by rlnTomoName --outdir split
     """
+    strip_suffixes = strip_suffix or DEFAULT_STRIP_SUFFIXES
+
     try:
         blocks, part_key = read_star(input_path)
         particles = blocks[part_key]
+        flavor = detect_flavor(blocks, particles)
         group_column = detect_group_column(particles, group_by)
         plan = plan_split(particles, group_column, label, outdir=outdir,
-                          strip_suffix=strip_suffix)
+                          strip_suffixes=strip_suffixes)
     except SplitStarError as exc:
         raise click.ClickException(str(exc))
 
     if not quiet:
         click.echo(f"input:           {input_path}")
+        click.echo(f"detected flavor: {flavor}")
         click.echo(f"grouping column: {group_column} ({len(plan)} groups)")
+        click.echo(f"name stripping:  {', '.join(strip_suffixes)}")
         click.echo(f"output root:     {outdir}")
         click.echo("")
 
