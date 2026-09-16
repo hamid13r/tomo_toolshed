@@ -114,9 +114,9 @@ def test_plan_uses_label_prefix_and_all_suffix(tmp_path):
                                "ts_02.mrc.tomostar"])
     blocks, key = core.read_star(str(src))
     plan = core.plan_split(blocks[key], "rlnMicrographName", "EXP", outdir="out")
-    names = [combo[0] for combo, _, _ in plan]
-    paths = [p for _, p, _ in plan]
-    rows = [n for _, _, n in plan]
+    names = [item.combo[0] for item in plan]
+    paths = [item.output_path for item in plan]
+    rows = [item.n_rows for item in plan]
     assert names == ["ts_01.mrc.tomostar", "ts_02.mrc.tomostar"]   # first-appearance order
     assert paths[0] == str(Path("out") / "EXP_ts_01" / "EXP_ts_01_all.star")
     assert rows == [2, 1]
@@ -126,9 +126,8 @@ def test_plan_without_label_has_no_prefix(tmp_path):
     src = _write_single_block(tmp_path / "in.star", ["ts_01.mrc.tomostar"])
     blocks, key = core.read_star(str(src))
     plan = core.plan_split(blocks[key], "rlnMicrographName", None, outdir=".")
-    _, path, _ = plan[0]
     import os
-    assert path == os.path.join(".", "ts_01", "ts_01_all.star")
+    assert plan[0].output_path == os.path.join(".", "ts_01", "ts_01_all.star")
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +286,126 @@ def test_multiple_group_by_bad_column_is_a_clean_error(tmp_path):
     ])
     assert result.exit_code != 0
     assert "nope" in result.output
+
+
+def _write_numeric(path, values, column="rlnDistanceFromtop", micrograph="a.mrc.tomostar"):
+    df = pd.DataFrame({
+        "rlnCoordinateX": [float(i) for i in range(len(values))],
+        "rlnMicrographName": [micrograph] * len(values),
+        column: list(values),
+    })
+    starfile.write(df, str(path), overwrite=True)
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Range splitting.
+# ---------------------------------------------------------------------------
+def test_range_split_creates_half_open_bins(tmp_path):
+    # values: 50, 100, 150, 250, 400 ; breaks 100,200,300
+    src = _write_numeric(tmp_path / "in.star", [50, 100, 150, 250, 400])
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, [
+        "--i", str(src), "--label", "D",
+        "--range-by", "rlnDistanceFromtop", "--breaks", "100,200,300",
+        "--outdir", str(out),
+    ])
+    assert result.exit_code == 0, result.output
+    # 50 -> lt100 ; 100 & 150 -> 100-200 (100 is inclusive lower) ; 250 -> 200-300 ; 400 -> ge300
+    assert len(starfile.read(str(out / "D_lt100" / "D_lt100_all.star"))) == 1
+    assert len(starfile.read(str(out / "D_100-200" / "D_100-200_all.star"))) == 2
+    assert len(starfile.read(str(out / "D_200-300" / "D_200-300_all.star"))) == 1
+    assert len(starfile.read(str(out / "D_ge300" / "D_ge300_all.star"))) == 1
+    # empty bins produce no file; every row lands once.
+    total = sum(len(starfile.read(str(p))) for p in out.rglob("*_all.star"))
+    assert total == 5
+
+
+def test_range_value_on_breakpoint_goes_to_upper_bin(tmp_path):
+    src = _write_numeric(tmp_path / "in.star", [200])   # exactly on the break
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, [
+        "--i", str(src), "--label", "D", "--range-by", "rlnDistanceFromtop",
+        "--breaks", "100,200,300", "--outdir", str(out),
+    ])
+    assert result.exit_code == 0, result.output
+    assert (out / "D_200-300" / "D_200-300_all.star").exists()      # [200, 300)
+    assert not (out / "D_100-200").exists()
+
+
+def test_range_combines_with_group_by(tmp_path):
+    df = pd.DataFrame({
+        "rlnCoordinateX": [1.0, 2.0, 3.0],
+        "rlnTomoName": ["A.mrc.tomostar", "A.mrc.tomostar", "B.mrc.tomostar"],
+        "rlnDistanceFromtop": [50.0, 250.0, 50.0],
+    })
+    src = tmp_path / "in.star"
+    starfile.write(df, str(src), overwrite=True)
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, [
+        "--i", str(src), "--label", "X", "--group-by", "rlnTomoName",
+        "--range-by", "rlnDistanceFromtop", "--breaks", "200", "--outdir", str(out),
+    ])
+    assert result.exit_code == 0, result.output
+    assert (out / "X_A_lt200" / "X_A_lt200_all.star").exists()
+    assert (out / "X_A_ge200" / "X_A_ge200_all.star").exists()
+    assert (out / "X_B_lt200" / "X_B_lt200_all.star").exists()
+
+
+def test_range_by_requires_breaks(tmp_path):
+    src = _write_numeric(tmp_path / "in.star", [1, 2])
+    runner = CliRunner()
+    result = runner.invoke(split_star, ["--i", str(src), "--range-by",
+                                        "rlnDistanceFromtop", "--outdir", str(tmp_path / "o")])
+    assert result.exit_code != 0
+    assert "breaks" in result.output.lower()
+
+
+def test_range_by_non_numeric_column_is_an_error(tmp_path):
+    src = _write_numeric(tmp_path / "in.star", [1, 2])
+    runner = CliRunner()
+    result = runner.invoke(split_star, [
+        "--i", str(src), "--range-by", "rlnMicrographName", "--breaks", "1",
+        "--outdir", str(tmp_path / "o"),
+    ])
+    assert result.exit_code != 0
+    assert "numeric" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Provenance comment header.
+# ---------------------------------------------------------------------------
+def test_output_has_provenance_comment(tmp_path):
+    src = _write_numeric(tmp_path / "run_data.star", [50, 250])
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, [
+        "--i", str(src), "--label", "D", "--range-by", "rlnDistanceFromtop",
+        "--breaks", "200", "--outdir", str(out),
+    ])
+    assert result.exit_code == 0, result.output
+    text = (out / "D_lt200" / "D_lt200_all.star").read_text()
+    head = text.splitlines()[:5]
+    assert any("Created by tomo_toolshed split-star" in l for l in head)
+    assert any("source:" in l and "run_data.star" in l for l in head)
+    assert any("split by:" in l and "range(rlnDistanceFromtop" in l for l in head)
+    assert any("this file:" in l and "rlnDistanceFromtop < 200" in l for l in head)
+    # The comment must not break re-reading.
+    assert len(starfile.read(str(out / "D_lt200" / "D_lt200_all.star"))) == 1
+
+
+def test_no_comment_flag_omits_header(tmp_path):
+    src = _write_single_block(tmp_path / "in.star", ["a.mrc.tomostar"])
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, ["--i", str(src), "--label", "L",
+                                        "--outdir", str(out), "--no-comment"])
+    assert result.exit_code == 0, result.output
+    text = (out / "L_a" / "L_a_all.star").read_text()
+    assert "tomo_toolshed" not in text
 
 
 def test_missing_group_column_is_a_clean_error(tmp_path):

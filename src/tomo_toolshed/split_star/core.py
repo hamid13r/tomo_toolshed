@@ -15,6 +15,8 @@ out as a single unnamed block.
 
 import os
 import re
+from collections import namedtuple
+from importlib import metadata
 
 import numpy as np
 import pandas as pd
@@ -145,71 +147,172 @@ def group_dirname(group_name, strip_suffixes=DEFAULT_STRIP_SUFFIXES,
     return name[: -best] if best else name
 
 
-def _as_columns(group_columns):
-    """Normalize a column argument (a string or a sequence) to a list."""
-    if isinstance(group_columns, str):
-        return [group_columns]
-    return list(group_columns)
+# A range dimension: split a numeric ``column`` at ``breaks`` into half-open bins.
+Range = namedtuple("Range", "column breaks")
+
+# One planned output file.
+PlanItem = namedtuple("PlanItem", "combo base output_path n_rows mask descriptions")
 
 
-def _combo_mask(particles, group_columns, combo):
-    """Boolean mask of rows whose ``group_columns`` equal the tuple ``combo``."""
-    mask = np.ones(len(particles), dtype=bool)
-    for column, value in zip(group_columns, combo):
-        mask &= (particles[column].to_numpy() == value)
-    return mask
+def _normalize_dimensions(dimensions):
+    """Normalize the split spec into a list of dimensions (strings or Ranges)."""
+    if isinstance(dimensions, (str, Range)):
+        return [dimensions]
+    return list(dimensions)
 
 
-def combo_basename(combo, label, strip_suffixes=DEFAULT_STRIP_SUFFIXES,
-                   strip_patterns=DEFAULT_STRIP_PATTERNS):
-    """Build the base name for one group combination.
+def _fmt_num(x):
+    """Format a break value: integer-valued floats print without a trailing .0."""
+    xf = float(x)
+    return str(int(xf)) if xf.is_integer() else str(xf)
 
-    Each column value is cleaned with :func:`group_dirname` (so filename-like
-    values lose their suffix) and the parts are joined with ``_``; ``label`` is
-    prefixed as ``<label>_`` when non-empty. For a single column this is exactly
-    the old ``<label>_<name>``.
+
+def _bin_label(lo, hi):
+    """Directory-name label for the half-open bin ``[lo, hi)``."""
+    if lo == float("-inf"):
+        return f"lt{_fmt_num(hi)}"
+    if hi == float("inf"):
+        return f"ge{_fmt_num(lo)}"
+    return f"{_fmt_num(lo)}-{_fmt_num(hi)}"
+
+
+def _bin_desc(column, lo, hi):
+    """Human-readable description of the half-open bin ``[lo, hi)``."""
+    if lo == float("-inf"):
+        return f"{column} < {_fmt_num(hi)}"
+    if hi == float("inf"):
+        return f"{column} >= {_fmt_num(lo)}"
+    return f"{_fmt_num(lo)} <= {column} < {_fmt_num(hi)}"
+
+
+def _dimension_arrays(particles, dim, strip_suffixes, strip_patterns):
+    """Return ``(key_array, name_array, describe_fn)`` for one split dimension.
+
+    ``key_array`` is what rows are grouped by (raw value for a column, bin index
+    for a range); ``name_array`` is the per-row directory-name part; ``describe_fn``
+    maps a key to a human-readable description for the provenance header.
     """
-    parts = [group_dirname(value, strip_suffixes, strip_patterns) for value in combo]
-    prefix = f"{label}_" if label else ""
-    return prefix + "_".join(parts)
+    if isinstance(dim, Range):
+        column, raw_breaks = dim.column, dim.breaks
+        if column not in particles.columns:
+            raise SplitStarError(
+                f"--range-by {column!r} is not a column in the star file")
+        try:
+            values = particles[column].to_numpy(dtype=float)
+        except (ValueError, TypeError):
+            raise SplitStarError(f"--range-by column {column!r} is not numeric")
+        if np.isnan(values).any():
+            raise SplitStarError(
+                f"--range-by column {column!r} has non-numeric/empty values")
+        breaks = sorted(float(b) for b in raw_breaks)
+        if not breaks:
+            raise SplitStarError("--range-by needs at least one break (--breaks)")
+        edges = [float("-inf"), *breaks, float("inf")]
+        # side='right': a value equal to a break falls in the upper bin ([break, ...)).
+        idx = np.searchsorted(np.asarray(breaks), values, side="right")
+        names = np.array([_bin_label(edges[i], edges[i + 1]) for i in idx])
+        describe = lambda key: _bin_desc(column, edges[key], edges[key + 1])  # noqa: E731
+        return idx, names, describe
+
+    column = dim
+    if column not in particles.columns:
+        raise SplitStarError(f"--group-by {column!r} is not a column in the star file")
+    keys = particles[column].to_numpy()
+    names = np.array([group_dirname(v, strip_suffixes, strip_patterns) for v in keys])
+    describe = lambda key: f"{column}={key}"  # noqa: E731
+    return keys, names, describe
 
 
-def plan_split(particles, group_columns, label, outdir=".",
+def split_spec_string(dimensions):
+    """One-line description of the split, for the provenance header/report."""
+    parts = []
+    for dim in _normalize_dimensions(dimensions):
+        if isinstance(dim, Range):
+            breaks = sorted(float(b) for b in dim.breaks)
+            joined = ", ".join(_fmt_num(b) for b in breaks)
+            parts.append(f"range({dim.column}, breaks=[{joined}])")
+        else:
+            parts.append(str(dim))
+    return ", ".join(parts)
+
+
+def plan_split(particles, dimensions, label, outdir=".",
                strip_suffixes=DEFAULT_STRIP_SUFFIXES,
                strip_patterns=DEFAULT_STRIP_PATTERNS):
-    """Return the list of ``(combo, output_path, n_rows)`` to be written.
+    """Return the list of :class:`PlanItem` to be written.
 
-    ``group_columns`` may be a single column name or a list; splitting is by the
-    combination of their values, one entry per unique tuple, in first-appearance
-    order. ``label`` is prefixed as ``<label>_`` when non-empty; when empty/None
-    there is no prefix (the original always prefixed, producing a stray ``None_``
-    when no label was given).
+    ``dimensions`` is a single column name, or a list mixing column names and
+    :class:`Range` specs; splitting is by the combination of all dimensions, one
+    entry per unique key tuple that actually occurs, in first-appearance order
+    (so empty range bins produce no file). ``label`` is prefixed as ``<label>_``
+    when non-empty.
     """
-    group_columns = _as_columns(group_columns)
-    prefix_len = len(group_columns)
+    dims = _normalize_dimensions(dimensions)
+    keys_list, names_list, describers = [], [], []
+    for dim in dims:
+        keys, names, describe = _dimension_arrays(
+            particles, dim, strip_suffixes, strip_patterns)
+        keys_list.append(keys)
+        names_list.append(names)
+        describers.append(describe)
+
+    n_total = len(particles)
+    keys_df = pd.DataFrame({i: keys_list[i] for i in range(len(dims))})
+    keys_df = keys_df.reset_index(drop=True)
+    prefix = f"{label}_" if label else ""
+
     plan = []
-    # drop_duplicates keeps first occurrence and preserves row order.
-    combos = particles[group_columns].drop_duplicates().to_numpy()
-    for row in combos:
-        combo = tuple(row[:prefix_len])
-        base = combo_basename(combo, label, strip_suffixes, strip_patterns)
-        n_rows = int(_combo_mask(particles, group_columns, combo).sum())
+    for pos in keys_df.drop_duplicates().index:
+        combo = tuple(keys_df.iloc[pos].tolist())
+        base = prefix + "_".join(str(names_list[i][pos]) for i in range(len(dims)))
+        mask = np.ones(n_total, dtype=bool)
+        for i in range(len(dims)):
+            mask &= (keys_list[i] == combo[i])
+        descriptions = [describers[i](combo[i]) for i in range(len(dims))]
         output_path = os.path.join(outdir, base, base + "_all.star")
-        plan.append((combo, output_path, n_rows))
+        plan.append(PlanItem(combo, base, output_path,
+                             int(mask.sum()), mask, descriptions))
     return plan
 
 
-def write_group(blocks, part_key, particles, group_columns, combo, output_path):
-    """Write one group combination's rows to ``output_path``, preserving blocks.
+def _package_version():
+    try:
+        return metadata.version("tomo-toolshed")
+    except metadata.PackageNotFoundError:
+        return ""
+
+
+def build_header_lines(source, split_spec, descriptions, command="split-star"):
+    """Provenance comment lines recording how this output file was produced."""
+    version = _package_version()
+    stamp = f"tomo_toolshed {command}" + (f" (v{version})" if version else "")
+    return [
+        f"Created by {stamp}",
+        f"source: {source}",
+        f"split by: {split_spec}",
+        f"this file: {'; '.join(descriptions)}",
+    ]
+
+
+def _prepend_comment(path, lines):
+    """Prepend ``# ``-prefixed comment lines to an existing star file."""
+    body = open(path).read()
+    with open(path, "w") as f:
+        f.writelines(f"# {line}\n" for line in lines)
+        f.write(body)
+
+
+def write_group(blocks, part_key, particles, mask, output_path, header_lines=None):
+    """Write the rows selected by ``mask`` to ``output_path``, preserving blocks.
 
     Every non-particles block (optics, general, ...) is carried through unchanged
     and in order; a single-unnamed-block input yields a single-unnamed-block
-    output.
+    output. ``header_lines`` (if given) are prepended as ``#`` comments.
     """
-    group_columns = _as_columns(group_columns)
-    subset = particles[_combo_mask(particles, group_columns, combo)]
     out = dict(blocks)
-    out[part_key] = subset
+    out[part_key] = particles[mask]
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     starfile.write(out, output_path, overwrite=True)
-    return len(subset)
+    if header_lines:
+        _prepend_comment(output_path, header_lines)
+    return int(mask.sum())

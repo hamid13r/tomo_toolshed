@@ -90,6 +90,43 @@ The parts are joined with `_`. If two different combinations would collapse to t
 same name (possible because values can themselves contain `_`), the tool **errors
 instead of overwriting** — reorder the columns or split one column per run.
 
+## Splitting a numeric column into ranges
+
+`--range-by COLUMN --breaks a,b,c` splits a numeric column at the break points into
+**half-open bins** `[low, high)` — a value equal to a break falls in the *upper*
+bin. `N` breaks make up to `N+1` bins covering everything; bins with no particles
+produce no file, so nothing is dropped:
+
+```bash
+tomo_toolshed split-star --i run_data.star \
+    --range-by rlnDistanceFromtop --breaks 100,200,300 --label D
+# -> D_lt100/, D_100-200/, D_200-300/, D_ge300/  (only the non-empty ones)
+```
+
+The range dimension combines with `--group-by`, e.g. per tomogram **and** distance
+band:
+
+```bash
+tomo_toolshed split-star --i run_data.star \
+    --group-by rlnTomoName --range-by rlnDistanceFromtop --breaks 100,200
+# -> <tomo>_lt100/, <tomo>_100-200/, <tomo>_ge200/ per tomogram
+```
+
+## Provenance comment
+
+Every output star file gets a comment header recording how it was made — the source
+file, the split specification, and this file's own values/range:
+
+```text
+# Created by tomo_toolshed split-star (v0.1.0)
+# source: run_data.star
+# split by: rlnTomoName, range(rlnDistanceFromtop, breaks=[100, 200])
+# this file: rlnTomoName=Position_1.tomostar; 100 <= rlnDistanceFromtop < 200
+```
+
+RELION and `starfile` ignore `#` comment lines, so the file still reads normally.
+Disable with `--no-comment`.
+
 ## Usage
 
 ```bash
@@ -117,6 +154,9 @@ tomo_toolshed split-star --i run_data.star --label EXP --dry-run
 | `--label` | *(none)* | Prefix added to each output directory and file. Omit for no prefix. |
 | `--outdir` (`-o`) | `.` | Directory to write the per-group subdirectories into. |
 | `--group-by` (`--group_by`) | *(auto)* | Column to split on; accepts any column and is repeatable to split by a combination. Default: the auto-detected name column. |
+| `--range-by` (`--range_by`) | *(none)* | Numeric column to split into ranges at `--breaks` (half-open `[low, high)` bins). Combines with `--group-by`. |
+| `--breaks` | *(none)* | Comma-separated break points for `--range-by`, e.g. `100,200,300`. |
+| `--comment / --no-comment` | on | Prepend a provenance comment (source, split spec, this file's values) to each output. |
 | `--strip-suffix` (`--strip_suffix`) | `.mrc.tomostar`, `.tomostar`, `.mrc`, `.mrc_<pixelsize>Apx.mrc` | Suffix(es) stripped from each group name to form its base name (repeatable; longest match wins; only stripped when it ends the name). Passing this replaces the defaults, including the Warp/M pixel-size pattern. |
 | `--dry-run` | off | List what would be written; create nothing. |
 | `--quiet` / `-q` | off | Only print the final summary. |
