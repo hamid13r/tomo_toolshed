@@ -37,13 +37,19 @@ stripping the **first matching** of these suffixes (longest first), so directory
 names come out clean regardless of flavor:
 
 ```
-.mrc.tomostar   →  ts_001.mrc.tomostar    → ts_001     (RELION 4)
-.tomostar       →  Position_1.tomostar    → Position_1 (RELION 5 / M)
-.mrc            →  foo_microtubule.mrc    → foo_microtubule (RELION 3)
+.mrc.tomostar          →  ts_001.mrc.tomostar         → ts_001     (RELION 4)
+.tomostar              →  Position_1.tomostar         → Position_1 (RELION 5 / M)
+.mrc                   →  foo_microtubule.mrc         → foo_microtubule (RELION 3)
+.mrc_<pixelsize>Apx.mrc →  Position_1.mrc_9.98Apx.mrc  → Position_1 (Warp/M recon)
 ```
 
-Override with one or more `--strip-suffix` values; a name that matches none is used
-unchanged.
+The last one is a **pattern**, not a literal, because the pixel size varies
+(`9.98`, `10`, `4.22`, …); it wins over the plain `.mrc` so the base is not left as
+`Position_1.mrc_9.98Apx`.
+
+Override with one or more `--strip-suffix` values; doing so takes full control (the
+built-in defaults, including the `.mrc_<pixelsize>Apx.mrc` pattern, are then off). A
+name that matches nothing is used unchanged.
 
 ## Directory layout produced
 
@@ -86,7 +92,7 @@ tomo_toolshed split-star --i run_data.star --label EXP --dry-run
 | `--label` | *(none)* | Prefix added to each output directory and file. Omit for no prefix. |
 | `--outdir` (`-o`) | `.` | Directory to write the per-group subdirectories into. |
 | `--group-by` (`--group_by`) | *(auto)* | Override the grouping column. |
-| `--strip-suffix` (`--strip_suffix`) | `.mrc.tomostar`, `.tomostar`, `.mrc` | Suffix(es) stripped from each group name to form its base name (repeatable; longest match wins; only stripped when it ends the name). |
+| `--strip-suffix` (`--strip_suffix`) | `.mrc.tomostar`, `.tomostar`, `.mrc`, `.mrc_<pixelsize>Apx.mrc` | Suffix(es) stripped from each group name to form its base name (repeatable; longest match wins; only stripped when it ends the name). Passing this replaces the defaults, including the Warp/M pixel-size pattern. |
 | `--dry-run` | off | List what would be written; create nothing. |
 | `--quiet` / `-q` | off | Only print the final summary. |
 

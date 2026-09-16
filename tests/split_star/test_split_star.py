@@ -85,9 +85,24 @@ def test_group_dirname_longest_suffix_wins():
     assert core.group_dirname("x.mrc.tomostar") == "x"
 
 
-def test_group_dirname_custom_suffix():
+@pytest.mark.parametrize("name,expected", [
+    ("Position_1.mrc_9.98Apx.mrc", "Position_1"),       # typical float
+    ("foo.mrc_10Apx.mrc", "foo"),                       # integer pixel size
+    ("bar.mrc_4.22Apx.mrc", "bar"),
+])
+def test_group_dirname_strips_warp_pixelsize_pattern(name, expected):
+    # The .mrc_<pixelsize>Apx.mrc pattern must win over the literal .mrc, which
+    # would otherwise leave e.g. 'Position_1.mrc_9.98Apx'.
+    assert core.group_dirname(name) == expected
+
+
+def test_group_dirname_custom_suffix_disables_pattern():
     assert core.group_dirname("ts_01.mrc", strip_suffixes=".mrc") == "ts_01"
     assert core.group_dirname("ts_01.xyz", strip_suffixes=[".xyz"]) == "ts_01"
+    # With an explicit suffix list and no patterns, the Warp pattern does not fire.
+    assert core.group_dirname("foo.mrc_9.98Apx.mrc",
+                              strip_suffixes=[".mrc"], strip_patterns=()) \
+        == "foo.mrc_9.98Apx"
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +247,20 @@ def test_default_stripping_is_version_appropriate(flavor_col, value, flavor,
     result = runner.invoke(split_star, ["--i", str(src), "--outdir", str(out)])
     assert result.exit_code == 0, result.output
     assert (out / expected_dir / f"{expected_dir}_all.star").exists()
+
+
+def test_warp_pixelsize_names_split_into_clean_dirs(tmp_path):
+    src = _write_single_block(
+        tmp_path / "in.star",
+        ["Position_1.mrc_9.98Apx.mrc", "Position_1.mrc_9.98Apx.mrc",
+         "Position_2.mrc_9.98Apx.mrc"])
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, ["--i", str(src), "--label", "L",
+                                        "--outdir", str(out)])
+    assert result.exit_code == 0, result.output
+    assert (out / "L_Position_1" / "L_Position_1_all.star").exists()
+    assert (out / "L_Position_2" / "L_Position_2_all.star").exists()
 
 
 def test_flavor_is_detected_and_reported():

@@ -33,6 +33,13 @@ GROUP_COLUMN_CANDIDATES = ("rlnTomoName", "rlnMicrographName", "wrpSourceName")
 # match first) so directory names come out clean regardless of flavor.
 DEFAULT_STRIP_SUFFIXES = (".mrc.tomostar", ".tomostar", ".mrc")
 
+# Warp/M reconstruction names embed the pixel size, e.g.
+# ``Position_1.mrc_9.98Apx.mrc``; the float varies, so it is matched by pattern
+# rather than by a literal suffix. Described in the CLI report as
+# ``.mrc_<pixelsize>Apx.mrc``.
+DEFAULT_STRIP_PATTERNS = (re.compile(r"\.mrc_\d+(?:\.\d+)?Apx\.mrc$"),)
+STRIP_PATTERN_LABEL = ".mrc_<pixelsize>Apx.mrc"
+
 # Flavor identifiers (same scheme as the duplicate-remover tool).
 FLAVOR_RELION3 = "relion3"
 FLAVOR_RELION4 = "relion4"
@@ -94,24 +101,34 @@ def detect_group_column(particles, override=None):
         f"{', '.join(GROUP_COLUMN_CANDIDATES)}); pass --group-by")
 
 
-def group_dirname(group_name, strip_suffixes=DEFAULT_STRIP_SUFFIXES):
+def group_dirname(group_name, strip_suffixes=DEFAULT_STRIP_SUFFIXES,
+                  strip_patterns=DEFAULT_STRIP_PATTERNS):
     """Turn a group value into a directory-safe base name.
 
-    Strips the first matching suffix in ``strip_suffixes`` (tried longest first,
-    so ``.mrc.tomostar`` wins over ``.tomostar``) from the end of the name and
-    leaves the rest untouched. A single string is accepted for convenience.
+    Strips whichever of the literal ``strip_suffixes`` or the regex
+    ``strip_patterns`` matches the **most** characters at the end of the name (so
+    ``.mrc.tomostar`` wins over ``.tomostar``, and ``.mrc_9.98Apx.mrc`` wins over
+    ``.mrc``), leaving the rest untouched. A single string is accepted for
+    ``strip_suffixes``.
     """
     name = str(group_name)
     if isinstance(strip_suffixes, str):
         strip_suffixes = (strip_suffixes,)
-    for suffix in sorted((s for s in strip_suffixes if s), key=len, reverse=True):
-        if name.endswith(suffix):
-            return name[: -len(suffix)]
-    return name
+
+    best = 0
+    for suffix in strip_suffixes:
+        if suffix and name.endswith(suffix):
+            best = max(best, len(suffix))
+    for pattern in strip_patterns:
+        match = pattern.search(name)
+        if match and match.end() == len(name):
+            best = max(best, match.end() - match.start())
+    return name[: -best] if best else name
 
 
 def plan_split(particles, group_column, label, outdir=".",
-               strip_suffixes=DEFAULT_STRIP_SUFFIXES):
+               strip_suffixes=DEFAULT_STRIP_SUFFIXES,
+               strip_patterns=DEFAULT_STRIP_PATTERNS):
     """Return the list of ``(group_name, output_path, n_rows)`` to be written.
 
     Groups are taken in first-appearance order. ``label`` is prefixed as
@@ -121,7 +138,7 @@ def plan_split(particles, group_column, label, outdir=".",
     prefix = f"{label}_" if label else ""
     plan = []
     for group_name in pd.unique(particles[group_column].to_numpy()):
-        base = prefix + group_dirname(group_name, strip_suffixes)
+        base = prefix + group_dirname(group_name, strip_suffixes, strip_patterns)
         n_rows = int((particles[group_column] == group_name).sum())
         output_path = os.path.join(outdir, base, base + "_all.star")
         plan.append((group_name, output_path, n_rows))

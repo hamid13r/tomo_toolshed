@@ -10,7 +10,9 @@ from pathlib import Path
 import click
 
 from .core import (
+    DEFAULT_STRIP_PATTERNS,
     DEFAULT_STRIP_SUFFIXES,
+    STRIP_PATTERN_LABEL,
     SplitStarError,
     detect_flavor,
     detect_group_column,
@@ -35,7 +37,9 @@ from .core import (
 @click.option("--strip-suffix", "--strip_suffix", "strip_suffix", multiple=True,
               help="Suffix stripped from each group name to form its "
                    "directory/file base name (repeatable, longest match wins). "
-                   f"Default: {', '.join(DEFAULT_STRIP_SUFFIXES)}.")
+                   "If given, takes full control (the built-in defaults, incl. the "
+                   f"{STRIP_PATTERN_LABEL} pattern, are not applied). "
+                   f"Default: {', '.join(DEFAULT_STRIP_SUFFIXES)}, {STRIP_PATTERN_LABEL}.")
 @click.option("--dry-run", is_flag=True, default=False,
               help="List what would be written; create nothing.")
 @click.option("--quiet", "-q", is_flag=True, default=False,
@@ -53,7 +57,14 @@ def split_star(input_path, label, outdir, group_by, strip_suffix, dry_run, quiet
     tomo_toolshed split-star --i run_data.star --label EXP
     tomo_toolshed split-star --i picks.star --group-by rlnTomoName --outdir split
     """
-    strip_suffixes = strip_suffix or DEFAULT_STRIP_SUFFIXES
+    # Explicit --strip-suffix takes full control (patterns off); otherwise use the
+    # built-in defaults, which include the .mrc_<pixelsize>Apx.mrc pattern.
+    if strip_suffix:
+        strip_suffixes, strip_patterns = strip_suffix, ()
+        stripping_report = ", ".join(strip_suffixes)
+    else:
+        strip_suffixes, strip_patterns = DEFAULT_STRIP_SUFFIXES, DEFAULT_STRIP_PATTERNS
+        stripping_report = ", ".join((*DEFAULT_STRIP_SUFFIXES, STRIP_PATTERN_LABEL))
 
     try:
         blocks, part_key = read_star(input_path)
@@ -61,7 +72,8 @@ def split_star(input_path, label, outdir, group_by, strip_suffix, dry_run, quiet
         flavor = detect_flavor(blocks, particles)
         group_column = detect_group_column(particles, group_by)
         plan = plan_split(particles, group_column, label, outdir=outdir,
-                          strip_suffixes=strip_suffixes)
+                          strip_suffixes=strip_suffixes,
+                          strip_patterns=strip_patterns)
     except SplitStarError as exc:
         raise click.ClickException(str(exc))
 
@@ -69,7 +81,7 @@ def split_star(input_path, label, outdir, group_by, strip_suffix, dry_run, quiet
         click.echo(f"input:           {input_path}")
         click.echo(f"detected flavor: {flavor}")
         click.echo(f"grouping column: {group_column} ({len(plan)} groups)")
-        click.echo(f"name stripping:  {', '.join(strip_suffixes)}")
+        click.echo(f"name stripping:  {stripping_report}")
         click.echo(f"output root:     {outdir}")
         click.echo("")
 
