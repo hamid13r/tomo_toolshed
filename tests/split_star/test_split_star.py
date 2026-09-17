@@ -461,6 +461,25 @@ def test_warp_pixelsize_names_split_into_clean_dirs(tmp_path):
     assert (out / "L_Position_2" / "L_Position_2_all.star").exists()
 
 
+def test_mixed_suffixes_within_one_file_are_each_cleaned(tmp_path):
+    # Group names in a single file need not share a suffix; each is stripped on
+    # its own (longest match / pattern), independent of flavor.
+    src = _write_single_block(tmp_path / "in.star", [
+        "ts_001.mrc.tomostar",           # -> ts_001
+        "Position_1.tomostar",           # -> Position_1
+        "foo.mrc",                       # -> foo
+        "Position_2.mrc_9.98Apx.mrc",    # -> Position_2 (pattern beats .mrc)
+        "plain_name",                    # -> plain_name (nothing to strip)
+    ])
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(split_star, ["--i", str(src), "--label", "L",
+                                        "--outdir", str(out)])
+    assert result.exit_code == 0, result.output
+    for base in ("L_ts_001", "L_Position_1", "L_foo", "L_Position_2", "L_plain_name"):
+        assert (out / base / f"{base}_all.star").exists(), base
+
+
 def test_flavor_is_detected_and_reported():
     # RELION 5 sample lives with the duplicate-remover fixtures.
     r5 = Path(__file__).parent.parent / "duplicate_remover" / "relion_5_2D_example.star"

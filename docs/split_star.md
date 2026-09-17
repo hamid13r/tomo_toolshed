@@ -15,7 +15,7 @@ per-tilt-series star files into a single project file.
    [Grouping by other columns](#grouping-by-other-columns)).
 3. For each distinct group value, writes that group's rows to
    `<outdir>/<label>_<name>/<label>_<name>_all.star`, where `<name>` is the group
-   value with a known suffix removed (see [Version-aware naming](#version-aware-naming)).
+   value with a known suffix removed (see [Name cleaning](#name-cleaning)).
 4. Any non-particles blocks (`optics`, `general`) are carried through into every
    output, so multi-block RELION 4/5 files split into valid RELION files; a
    single-unnamed-block input yields single-unnamed-block outputs.
@@ -25,29 +25,31 @@ per-tilt-series star files into a single project file.
 Like `duplicate-remover`, this works across star versions — the flavor is detected
 and reported, and each version's grouping/naming convention is handled:
 
-| Flavor | Blocks | Grouping column | Group names end in |
-|---|---|---|---|
-| RELION 3 | one unnamed `data_` | `rlnMicrographName` | `.mrc` |
-| RELION 4 | `optics` + `particles` | `rlnMicrographName` | `.mrc.tomostar` |
-| RELION 5 | `general` + `optics` + `particles` | `rlnTomoName` | `.tomostar` |
-| M / WarpTools | one unnamed `data_` | `wrpSourceName` | `.tomostar` |
+| Flavor | Blocks | Grouping column |
+|---|---|---|
+| RELION 3 | one unnamed `data_` | `rlnMicrographName` |
+| RELION 4 | `optics` + `particles` | `rlnMicrographName` |
+| RELION 5 | `general` + `optics` + `particles` | `rlnTomoName` |
+| M / WarpTools | one unnamed `data_` | `wrpSourceName` |
 
-## Version-aware naming
+## Name cleaning
 
-Because each version names its groups differently, the base name is formed by
-stripping the **first matching** of these suffixes (longest first), so directory
-names come out clean regardless of flavor:
+Group names may carry any of several suffixes — and they can differ from row to
+row within the same file. The base name is formed by stripping the **longest
+matching** of these suffixes (or the Warp/M pattern) from each name individually,
+so directory names come out clean whatever the mix:
 
 ```
-.mrc.tomostar          →  ts_001.mrc.tomostar         → ts_001     (RELION 4)
-.tomostar              →  Position_1.tomostar         → Position_1 (RELION 5 / M)
-.mrc                   →  foo_microtubule.mrc         → foo_microtubule (RELION 3)
-.mrc_<pixelsize>Apx.mrc →  Position_1.mrc_9.98Apx.mrc  → Position_1 (Warp/M recon)
+.mrc.tomostar           →  ts_001.mrc.tomostar         → ts_001
+.tomostar               →  Position_1.tomostar         → Position_1
+.mrc                    →  foo_microtubule.mrc         → foo_microtubule
+.mrc_<pixelsize>Apx.mrc →  Position_1.mrc_9.98Apx.mrc  → Position_1
 ```
 
-The last one is a **pattern**, not a literal, because the pixel size varies
-(`9.98`, `10`, `4.22`, …); it wins over the plain `.mrc` so the base is not left as
-`Position_1.mrc_9.98Apx`.
+Each name is handled on its own, so one file can contain a mix of these and every
+group is still named correctly. The last entry is a **pattern**, not a literal,
+because the pixel size varies (`9.98`, `10`, `4.22`, …); it wins over the plain
+`.mrc` so the base is not left as `Position_1.mrc_9.98Apx`.
 
 Override with one or more `--strip-suffix` values; doing so takes full control (the
 built-in defaults, including the `.mrc_<pixelsize>Apx.mrc` pattern, are then off). A
