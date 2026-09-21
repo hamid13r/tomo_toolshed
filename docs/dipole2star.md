@@ -85,13 +85,13 @@ Examples:
 
 ```bash
 # One star file
-tomo_toolshed dipole2star picks.star --scale 2 --output-apix 9.98
+tomo_toolshed dipole2star picks.star --scale 2 --output-apix 9.98 --outdir out
 
 # A glob of text files into a chosen output directory
 tomo_toolshed dipole2star "picks/*.txt" --scale 2 --output-apix 9.98 --outdir out
 
 # Randomize the about-axis angle, reproducibly
-tomo_toolshed dipole2star picks.star --scale 2 --output-apix 9.98 --random --seed 42
+tomo_toolshed dipole2star picks.star --scale 2 --output-apix 9.98 --outdir out --random --seed 42
 ```
 
 ## Options
@@ -102,7 +102,7 @@ tomo_toolshed dipole2star picks.star --scale 2 --output-apix 9.98 --random --see
 | `--scale FLOAT` | *(required)* | Multiply picked coordinates by this factor before centering. |
 | `--output-apix FLOAT` | *(required)* | Pixel size (Å/px) written into `rlnPixelSize`. |
 | `--random` | *(off)* | Randomize each particle's azimuthal orientation about its pick axis. |
-| `--outdir PATH` | `.` | Directory to write the output star files to. |
+| `--outdir PATH`, `-o` | *(required)* | Directory to write the output star files to; created (parents included) if it does not exist. |
 | `--micrograph-suffix TEXT` | `.mrc_9.98Apx.mrc` | Appended to each input's stem to form `rlnMicrographName` (match your reconstruction file names). |
 | `--format {star,txt,auto}` | `auto` | Input reader. `auto` picks by extension (`.star` → star, else txt). |
 | `--seed INT` | *(drawn)* | Seed for `--random`. If omitted, a seed is drawn and printed so the run can be reproduced with `--seed <value>`. |

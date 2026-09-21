@@ -157,8 +157,9 @@ def convert_one(path, scale, random, pixel_size, outdir, *,
     """Convert one pick file to an oriented-particle star file.
 
     Returns ``(outpath, n_particles)``. The output is named ``<stem>.mrc.star``
-    in ``outdir``. Raises :class:`DipoleError` for an odd pick count or a
-    degenerate (z-parallel) dipole.
+    in ``outdir``, which is created (parents included) if it does not exist.
+    Raises :class:`DipoleError` for an odd pick count or a degenerate
+    (z-parallel) dipole.
     """
     stem = Path(path).stem
     coords = read_coords(path, fmt=fmt)
@@ -174,7 +175,9 @@ def convert_one(path, scale, random, pixel_size, outdir, *,
         row['rlnMicrographName'] = f"{stem}{micrograph_suffix}"
 
     df = pd.DataFrame(rows, columns=HEADER)
-    outpath = Path(outdir) / f"{stem}.mrc.star"
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    outpath = outdir / f"{stem}.mrc.star"
     starfile.write(df, outpath, overwrite=True)
     return outpath, len(rows)
 

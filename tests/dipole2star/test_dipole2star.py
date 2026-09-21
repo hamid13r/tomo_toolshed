@@ -209,7 +209,6 @@ def test_cli_glob_expansion_and_outdir(tmp_path):
     (tmp_path / "a.txt").write_text("10 20 30\n14 20 30\n")
     (tmp_path / "b.txt").write_text("0 0 0\n3 4 12\n")
     outdir = tmp_path / "out"
-    outdir.mkdir()
 
     runner = CliRunner()
     result = runner.invoke(dipole2star, [
@@ -254,3 +253,38 @@ def test_cli_odd_pick_count_is_a_clean_error(tmp_path):
     ])
     assert result.exit_code != 0
     assert "odd" in result.output
+
+
+def test_cli_creates_nested_outdir(tmp_path):
+    p = tmp_path / "foo.txt"
+    p.write_text("10 20 30\n14 20 30\n")
+    outdir = tmp_path / "a" / "b" / "c"   # none of these exist yet
+    runner = CliRunner()
+    result = runner.invoke(dipole2star, [
+        str(p), "--scale", "2", "--output-apix", "9.98", "--outdir", str(outdir),
+    ])
+    assert result.exit_code == 0, result.output
+    assert (outdir / "foo.mrc.star").exists()
+
+
+def test_cli_requires_outdir(tmp_path):
+    p = tmp_path / "foo.txt"
+    p.write_text("10 20 30\n14 20 30\n")
+    runner = CliRunner()
+    result = runner.invoke(dipole2star, [
+        str(p), "--scale", "2", "--output-apix", "9.98",
+    ])
+    assert result.exit_code != 0
+    assert "--outdir" in result.output
+    # Nothing must leak into the current working directory.
+    assert not list(Path.cwd().glob("*.mrc.star"))
+
+
+def test_convert_one_creates_missing_outdir(tmp_path):
+    p = tmp_path / "foo.txt"
+    p.write_text("10 20 30\n14 20 30\n")
+    outdir = tmp_path / "x" / "y" / "z"   # created by convert_one, not the CLI
+    outpath, n = core.convert_one(str(p), 2.0, False, 9.98, str(outdir))
+    assert n == 1
+    assert Path(outpath).exists()
+    assert outpath == outdir / "foo.mrc.star"

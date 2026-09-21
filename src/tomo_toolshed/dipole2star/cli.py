@@ -27,8 +27,10 @@ from .core import (
               help="Randomize the particle's azimuthal orientation about its pick axis.")
 @click.option('--output-apix', 'pixel_size', type=float, required=True,
               help="Pixel size (Angstrom/px) to write into the rlnPixelSize column.")
-@click.option('--outdir', default='.', show_default=True,
-              help="Directory to write the output star files to.")
+@click.option('--outdir', '-o', required=True,
+              type=click.Path(file_okay=False),
+              help="Directory to write the output star files to "
+                   "(created if it does not exist).")
 @click.option('--micrograph-suffix', default=DEFAULT_MICROGRAPH_SUFFIX, show_default=True,
               help="Appended to each input's stem to form rlnMicrographName "
                    "(match your reconstruction file names).")
@@ -49,7 +51,7 @@ def dipole2star(star_files, scale, random, pixel_size, outdir, micrograph_suffix
 
     \b
     example:
-    tomo_toolshed dipole2star picks.star --scale 2 --output-apix 9.98
+    tomo_toolshed dipole2star picks.star --scale 2 --output-apix 9.98 --outdir out
     tomo_toolshed dipole2star "picks/*.txt" --scale 2 --output-apix 9.98 --outdir out
     """
     rng = None
