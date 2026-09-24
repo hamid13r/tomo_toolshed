@@ -17,6 +17,7 @@ from .dipole2star.cli import dipole2star
 from .write_ebt.cli import write_ebt
 from .duplicate_remover.cli import duplicate_remover
 from .split_star.cli import split_star
+from .scale_star.cli import scale_star
 
 
 # Declare the group name explicitly with underscores so click does not rewrite
@@ -35,6 +36,7 @@ def tomo_toolshed():
     write-ebt          Write an etomo batchruntomo .ebt project from a directory tree.
     duplicate-remover  Remove particles closer than a distance threshold per group.
     split-star         Split a star file into one per-group star file per directory.
+    scale-star         Rescale star-file coordinates between pixel sizes.
     """
 
 
@@ -46,6 +48,7 @@ tomo_toolshed.add_command(dipole2star, name="dipole2star")
 tomo_toolshed.add_command(write_ebt, name="write-ebt")
 tomo_toolshed.add_command(duplicate_remover, name="duplicate-remover")
 tomo_toolshed.add_command(split_star, name="split-star")
+tomo_toolshed.add_command(scale_star, name="scale-star")
 
 # Also accept the underscored spellings. Each is a hidden copy so it stays out of
 # the --help index while keeping the underscored command working as typed.
@@ -60,6 +63,10 @@ tomo_toolshed.add_command(_duplicate_remover_alias, name="duplicate_remover")
 _split_star_alias = copy.copy(split_star)
 _split_star_alias.hidden = True
 tomo_toolshed.add_command(_split_star_alias, name="split_star")
+
+_scale_star_alias = copy.copy(scale_star)
+_scale_star_alias.hidden = True
+tomo_toolshed.add_command(_scale_star_alias, name="scale_star")
 
 
 if __name__ == "__main__":

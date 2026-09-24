@@ -302,6 +302,22 @@ def _prepend_comment(path, lines):
         f.write(body)
 
 
+def write_star_file(blocks, output_path, header_lines=None):
+    """Write a blocks dict to ``output_path``, creating parent dirs as needed.
+
+    Blocks are written in order and unchanged (a single-unnamed-block input yields
+    a single-unnamed-block output); ``header_lines`` (if given) are prepended as
+    ``#`` comments. Reused by the sibling star tools so their outputs round-trip
+    identically.
+    """
+    parent = os.path.dirname(output_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    starfile.write(blocks, output_path, overwrite=True)
+    if header_lines:
+        _prepend_comment(output_path, header_lines)
+
+
 def write_group(blocks, part_key, particles, mask, output_path, header_lines=None):
     """Write the rows selected by ``mask`` to ``output_path``, preserving blocks.
 
@@ -311,8 +327,5 @@ def write_group(blocks, part_key, particles, mask, output_path, header_lines=Non
     """
     out = dict(blocks)
     out[part_key] = particles[mask]
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    starfile.write(out, output_path, overwrite=True)
-    if header_lines:
-        _prepend_comment(output_path, header_lines)
+    write_star_file(out, output_path, header_lines=header_lines)
     return int(mask.sum())
