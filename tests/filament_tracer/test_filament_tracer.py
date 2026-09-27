@@ -175,3 +175,65 @@ def test_random_rot_draws_and_prints_a_seed_when_omitted(tmp_path):
     ])
     assert result.exit_code == 0, result.output
     assert "random-rot: drew seed" in result.output
+
+
+# ---------------------------------------------------------------------------
+# RELION helical-refine compatibility: the labels RELION 4.0.2's
+# helix.cpp::updatePriorsForHelicalReconstruction requires and does not
+# auto-fill must be present and sane.
+# ---------------------------------------------------------------------------
+REQUIRED_HELICAL = ["rlnCoordinateX", "rlnCoordinateY", "rlnCoordinateZ",
+                    "rlnAngleRot", "rlnAngleTilt", "rlnAnglePsi",
+                    "rlnAngleTiltPrior", "rlnAnglePsiPrior",
+                    "rlnHelicalTubeID", "rlnHelicalTrackLengthAngst",
+                    "rlnAnglePsiFlipRatio"]
+
+
+def _write_two_tube_mask(path, pixel_size=10.0):
+    """Two separate straight tubes along Z."""
+    vol = np.zeros((40, 24, 12), dtype=np.uint8)
+    vol[3:35, 3:6, 5:8] = 1
+    vol[3:35, 17:20, 5:8] = 1
+    with mrcfile.new(str(path), overwrite=True) as m:
+        m.set_data(vol)
+        m.voxel_size = pixel_size
+    return path
+
+
+@pytest.mark.parametrize("random_rot", [False, True])
+def test_star_has_required_helical_labels(tmp_path, random_rot):
+    mask = _write_two_tube_mask(tmp_path / "mask.mrc")
+    star = tmp_path / "p.star"
+    core.trace_filaments(str(mask), str(star), random_rot=random_rot, seed=1,
+                         **COMMON)
+    df = starfile.read(str(star))
+    for col in REQUIRED_HELICAL:
+        assert col in df.columns, col
+    # legacy pixel-unit label must not be written (RELION would rescale it)
+    assert "rlnHelicalTrackLength" not in df.columns
+    assert np.allclose(df["rlnAnglePsiFlipRatio"].astype(float), 0.5)
+
+
+def test_tube_ids_unique_per_filament(tmp_path):
+    mask = _write_two_tube_mask(tmp_path / "mask.mrc")
+    star = tmp_path / "p.star"
+    core.trace_filaments(str(mask), str(star), **COMMON)
+    df = starfile.read(str(star))
+    assert sorted(df["rlnHelicalTubeID"].astype(int).unique()) == [1, 2]
+
+
+def test_track_length_angstrom_monotonic_nonzero(tmp_path):
+    mask = _write_two_tube_mask(tmp_path / "mask.mrc")
+    star = tmp_path / "p.star"
+    core.trace_filaments(str(mask), str(star), spacing_a=40.0, **COMMON)
+    df = starfile.read(str(star))
+    for _, tube in df.groupby("rlnHelicalTubeID"):
+        track = tube["rlnHelicalTrackLengthAngst"].astype(float).to_numpy()
+        assert track[0] == pytest.approx(0.0)
+        assert np.all(np.diff(track) > 0)            # strictly increasing
+        # Å, not px: consecutive steps equal the particle spacing in Å
+        xyz = tube[["rlnCoordinateX", "rlnCoordinateY",
+                    "rlnCoordinateZ"]].astype(float).to_numpy()
+        step_a = np.linalg.norm(np.diff(xyz, axis=0), axis=1) * COMMON["pixel_size"]
+        assert np.allclose(np.diff(track), step_a)
+    assert (df["rlnHelicalTrackLengthAngst"].astype(float) > 0).any()

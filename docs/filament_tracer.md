@@ -17,7 +17,9 @@ many tomograms.
    and resamples each filament at `--spacing` Å.
 5. Computes a per-particle tangent → rotation matrix → ZYZ Euler angles
    (`rlnAngleRot/Tilt/Psi`, with matching `*Prior` columns), grouped per
-   filament via `rlnHelicalTubeID` and `rlnHelicalTrackLength`.
+   filament via `rlnHelicalTubeID` (unique per traced filament) and
+   `rlnHelicalTrackLengthAngst` (cumulative arc length in Å, increasing along
+   each filament).
 6. Writes the particles to the output star file.
 
 ## Inputs and outputs
@@ -26,9 +28,31 @@ many tomograms.
 - **Output:** a helical particle star file (default `particles.star`) with
   columns: `rlnCoordinateX/Y/Z`, `rlnMicrographName`, `rlnMagnification`,
   `rlnPixelSize`, `rlnGroupNumber`, `rlnAngleRot/Tilt/Psi`,
-  `rlnAngleRot/Tilt/PsiPrior`, `rlnHelicalTubeID`, `rlnHelicalTrackLength`.
+  `rlnAngleRot/Tilt/PsiPrior`, `rlnHelicalTubeID`, `rlnHelicalTrackLengthAngst`,
+  `rlnAnglePsiFlipRatio` (always `0.5`).
 - **Optional:** a ChimeraX `.bild` overlay (spheres + tangent arrows) for visual
   QC — **only written when `--bild` is passed**.
+
+## RELION compatibility (helical refinement)
+
+The output targets RELION 4.x helical 3D refinement. RELION 4.0.2's
+`helix.cpp::updatePriorsForHelicalReconstruction` aborts with *"Labels of
+helical prior information are missing!"* unless every particle has
+`rlnAngleTiltPrior`, `rlnAnglePsiPrior`, `rlnHelicalTubeID`,
+`rlnHelicalTrackLengthAngst` and `rlnAnglePsiFlipRatio` (plus angles, origins
+and `rlnImageName`, which extraction / RELION itself supply). The tracer writes
+all five:
+
+- `rlnAnglePsiFlipRatio` is `0.5` (neutral polarity); RELION overwrites it
+  during the prior update.
+- `rlnHelicalTrackLengthAngst` is computed directly in Å from the pixel size
+  used for tracing. Rescaling coordinates to another binning does **not** change
+  it.
+- `rlnHelicalTubeID` is distinct per filament, which `--split_random_halves`
+  relies on to split helical data by tube.
+
+`rlnAngleRotPrior` is still written (except with `--random-rot`), but RELION
+4.x 3D refinement ignores it; it is not required.
 
 ## Usage
 

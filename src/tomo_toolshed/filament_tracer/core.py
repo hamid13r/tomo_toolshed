@@ -33,13 +33,26 @@ import networkx as nx
 
 # ---------------------------------------------------------------
 # Column layout of the output helical star file.
+#
+# RELION 4.0.2 helix.cpp::updatePriorsForHelicalReconstruction (L4394-4407)
+# hard-requires, besides angles/origins that exp_model.cpp zero-fills:
+#   rlnAngleTiltPrior, rlnAnglePsiPrior, rlnHelicalTubeID,
+#   rlnHelicalTrackLengthAngst, rlnAnglePsiFlipRatio
+# Neither of the last two is auto-filled, so both must be written here.
+# Note the legacy ``rlnHelicalTrackLength`` label is in *pixels*: RELION's
+# 3.0->3.1 converter multiplies it by the pixel size, and once an optics
+# table exists it is ignored -- so the Å value goes in the ...Angst label.
 # ---------------------------------------------------------------
 STAR_HEADER = ['rlnCoordinateX', 'rlnCoordinateY', 'rlnCoordinateZ',
                'rlnMicrographName', 'rlnMagnification', 'rlnPixelSize',
                'rlnGroupNumber',
                'rlnAngleRot', 'rlnAngleTilt', 'rlnAnglePsi',
                'rlnAngleRotPrior', 'rlnAngleTiltPrior', 'rlnAnglePsiPrior',
-               'rlnHelicalTubeID', 'rlnHelicalTrackLength']
+               'rlnHelicalTubeID', 'rlnHelicalTrackLengthAngst',
+               'rlnAnglePsiFlipRatio']
+
+# Neutral polarity; RELION updates it during the helical prior update.
+PSI_FLIP_RATIO = 0.5
 
 
 # ---------------------------------------------------------------
@@ -307,7 +320,8 @@ def trace_filaments(
         df.loc[i, 'rlnAngleTiltPrior'] = tilt
         df.loc[i, 'rlnAnglePsiPrior'] = psi
         df.loc[i, 'rlnHelicalTubeID'] = r['tube']
-        df.loc[i, 'rlnHelicalTrackLength'] = r['track']
+        df.loc[i, 'rlnHelicalTrackLengthAngst'] = r['track']   # already in Å
+        df.loc[i, 'rlnAnglePsiFlipRatio'] = PSI_FLIP_RATIO
 
     # Optional: replace the (arbitrary) about-axis angle with a random one.
     # Runs only when asked, so the default output path is unchanged.
