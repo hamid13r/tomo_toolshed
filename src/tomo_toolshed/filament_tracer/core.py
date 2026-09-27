@@ -12,6 +12,7 @@ plotting or GUI dependency here; ``.bild`` output is plain text and opt-in.
 """
 
 import os
+import warnings
 
 import numpy as np
 import mrcfile
@@ -122,7 +123,13 @@ def matrix_to_euler(t, tangent_axis="z", invert_rot=True):
     M = tangent_to_matrix(t, tangent_axis)
     if invert_rot:
         M = M.T
-    return R.from_matrix(M).as_euler("ZYZ", degrees=True)
+    # A tangent parallel to Z gives tilt = 0, where ZYZ rot and psi rotate
+    # about the same axis and only their sum is defined. scipy then folds it
+    # all into rot and sets psi = 0 -- a valid, deterministic decomposition --
+    # but warns each time. Expected here, so silence just that warning.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Gimbal lock detected")
+        return R.from_matrix(M).as_euler("ZYZ", degrees=True)
 
 
 # ---------------------------------------------------------------

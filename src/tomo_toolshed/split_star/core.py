@@ -296,7 +296,8 @@ def build_header_lines(source, split_spec, descriptions, command="split-star"):
 
 def _prepend_comment(path, lines):
     """Prepend ``# ``-prefixed comment lines to an existing star file."""
-    body = open(path).read()
+    with open(path) as f:
+        body = f.read()
     with open(path, "w") as f:
         f.writelines(f"# {line}\n" for line in lines)
         f.write(body)
