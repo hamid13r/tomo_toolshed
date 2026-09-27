@@ -1,7 +1,8 @@
 """``tomo_toolshed split-star`` -- split one star file into per-group star files.
 
 Groups a particle star file by its grouping column (tomogram / micrograph /
-source) and writes one ``<label>_<name>/<label>_<name>_all.star`` per group. The
+source) and writes one ``<label>_<name>_all.star`` per group (optionally one
+subdirectory per group). The
 grouping and I/O live in ``core.py``; this layer wires options and reporting.
 """
 
@@ -30,11 +31,16 @@ from .core import (
               type=click.Path(exists=True, dir_okay=False),
               help="Input star file to split.")
 @click.option("--label", default=None,
-              help="Prefix added to each output directory and file "
+              help="Prefix added to each output file (and directory) "
                    "(e.g. <label>_<name>). Omit for no prefix.")
 @click.option("--outdir", "-o", default=".", show_default=True,
               type=click.Path(file_okay=False),
-              help="Directory to write the per-group subdirectories into.")
+              help="Directory to write the per-group star files into.")
+@click.option("--dir-per-group", "--dir_per_group", "dir_per_group", is_flag=True,
+              default=False,
+              help="Put each group's star file in its own <outdir>/<label>_<name>/ "
+                   "subdirectory (e.g. one directory per tomogram). Default: all "
+                   "files flat in --outdir.")
 @click.option("--group-by", "--group_by", "group_by", multiple=True,
               help="Column to split on (repeatable). Any column works, not just "
                    "the name-like ones; repeat it to split by the combination "
@@ -58,12 +64,12 @@ from .core import (
               help="List what would be written; create nothing.")
 @click.option("--quiet", "-q", is_flag=True, default=False,
               help="Only print the final summary.")
-def split_star(input_path, label, outdir, group_by, range_by, breaks,
+def split_star(input_path, label, outdir, dir_per_group, group_by, range_by, breaks,
                strip_suffix, comment, dry_run, quiet):
     """Split a star file into one star file per group.
 
-    Each group is written to ``<outdir>/<label>_<name>/<label>_<name>_all.star``,
-    carrying through any optics/general blocks. The grouping column is
+    Each group is written to ``<outdir>/<label>_<name>_all.star`` (with
+    --dir-per-group: ``<outdir>/<label>_<name>/<label>_<name>_all.star``), carrying through any optics/general blocks. The grouping column is
     auto-detected (rlnTomoName, then rlnMicrographName, then wrpSourceName) unless
     --group-by is given; --group-by accepts any column and is repeatable. Add
     --range-by COLUMN --breaks a,b,c to also split a numeric column into ranges.
@@ -72,6 +78,7 @@ def split_star(input_path, label, outdir, group_by, range_by, breaks,
     \b
     example:
     tomo_toolshed split-star --i run_data.star --label EXP
+    tomo_toolshed split-star --i run_data.star --label EXP --dir-per-group
     tomo_toolshed split-star --i run_data.star --group-by rlnTomoName --group-by rlnClassNumber
     tomo_toolshed split-star --i run_data.star --range-by rlnDistanceFromtop --breaks 100,200,300
     """
@@ -116,7 +123,8 @@ def split_star(input_path, label, outdir, group_by, range_by, breaks,
 
         plan = plan_split(particles, dimensions, label, outdir=outdir,
                           strip_suffixes=strip_suffixes,
-                          strip_patterns=strip_patterns)
+                          strip_patterns=strip_patterns,
+                          dir_per_group=dir_per_group)
     except SplitStarError as exc:
         raise click.ClickException(str(exc))
 

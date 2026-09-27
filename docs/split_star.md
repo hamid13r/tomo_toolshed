@@ -2,7 +2,8 @@
 
 Part of [tomo_toolshed](../README.md). Groups a particle `.star` file by its
 grouping column (tomogram / micrograph / source) and writes **one star file per
-group**, each in its own subdirectory. It is the natural inverse of gathering many
+group**, written flat into one output directory by default (or one subdirectory
+per group with `--dir-per-group`). It is the natural inverse of gathering many
 per-tilt-series star files into a single project file.
 
 ## What it does
@@ -14,7 +15,8 @@ per-tilt-series star files into a single project file.
    column and is **repeatable** to split by a combination (see
    [Grouping by other columns](#grouping-by-other-columns)).
 3. For each distinct group value, writes that group's rows to
-   `<outdir>/<label>_<name>/<label>_<name>_all.star`, where `<name>` is the group
+   `<outdir>/<label>_<name>_all.star` (with `--dir-per-group`:
+   `<outdir>/<label>_<name>/<label>_<name>_all.star`), where `<name>` is the group
    value with a known suffix removed (see [Name cleaning](#name-cleaning)).
 4. Any non-particles blocks (`optics`, `general`) are carried through into every
    output, so multi-block RELION 4/5 files split into valid RELION files; a
@@ -61,13 +63,22 @@ For `--label EXP` on a file with micrographs `ts_01.mrc.tomostar` and
 `ts_02.mrc.tomostar`:
 
 ```
+EXP_ts_01_all.star
+EXP_ts_02_all.star
+```
+
+With `--dir-per-group`, each file gets its own subdirectory (e.g. one directory
+per tomogram):
+
+```
 EXP_ts_01/
 └── EXP_ts_01_all.star
 EXP_ts_02/
 └── EXP_ts_02_all.star
 ```
 
-Omit `--label` and there is no prefix (`ts_01/ts_01_all.star`).
+Omit `--label` and there is no prefix (`ts_01_all.star`, or
+`ts_01/ts_01_all.star` with `--dir-per-group`).
 
 ## Grouping by other columns
 
@@ -76,7 +87,7 @@ Omit `--label` and there is no prefix (`ts_01/ts_01_all.star`).
 
 ```bash
 tomo_toolshed split-star --i run_data.star --group-by rlnRandomSubset --label HALF
-# -> HALF_1/HALF_1_all.star, HALF_2/HALF_2_all.star
+# -> HALF_1_all.star, HALF_2_all.star
 ```
 
 Repeat `--group-by` to split by a **combination** — one output per unique tuple of
@@ -85,7 +96,7 @@ values, named `<label>_<val1>_<val2>_...`:
 ```bash
 tomo_toolshed split-star --i run_data.star \
     --group-by rlnTomoName --group-by rlnClassNumber --label EXP
-# -> EXP_<tomo>_<class>/EXP_<tomo>_<class>_all.star
+# -> EXP_<tomo>_<class>_all.star
 ```
 
 The parts are joined with `_`. If two different combinations would collapse to the
@@ -144,6 +155,9 @@ tomo_toolshed split-star --i run_data.star --label EXP
 # Split a RELION 5 file by tomogram into a chosen output root
 tomo_toolshed split-star --i run_it025_data.star --group-by rlnTomoName --outdir split
 
+# One subdirectory per tomogram
+tomo_toolshed split-star --i run_data.star --label EXP --dir-per-group
+
 # Preview without writing
 tomo_toolshed split-star --i run_data.star --label EXP --dry-run
 ```
@@ -153,8 +167,9 @@ tomo_toolshed split-star --i run_data.star --label EXP --dry-run
 | Option (aliases) | Default | Meaning |
 |---|---|---|
 | `--input` (`--i`) | *(required)* | Input star file to split. |
-| `--label` | *(none)* | Prefix added to each output directory and file. Omit for no prefix. |
-| `--outdir` (`-o`) | `.` | Directory to write the per-group subdirectories into. |
+| `--label` | *(none)* | Prefix added to each output file (and directory, with `--dir-per-group`). Omit for no prefix. |
+| `--outdir` (`-o`) | `.` | Directory to write the per-group star files into. |
+| `--dir-per-group` (`--dir_per_group`) | off | Put each group's file in its own `<outdir>/<label>_<name>/` subdirectory (e.g. one per tomogram). Default: all files flat in `--outdir`. |
 | `--group-by` (`--group_by`) | *(auto)* | Column to split on; accepts any column and is repeatable to split by a combination. Default: the auto-detected name column. |
 | `--range-by` (`--range_by`) | *(none)* | Numeric column to split into ranges at `--breaks` (half-open `[low, high)` bins). Combines with `--group-by`. |
 | `--breaks` | *(none)* | Comma-separated break points for `--range-by`, e.g. `100,200,300`. |

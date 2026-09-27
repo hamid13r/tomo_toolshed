@@ -118,7 +118,7 @@ def test_plan_uses_label_prefix_and_all_suffix(tmp_path):
     paths = [item.output_path for item in plan]
     rows = [item.n_rows for item in plan]
     assert names == ["ts_01.mrc.tomostar", "ts_02.mrc.tomostar"]   # first-appearance order
-    assert paths[0] == str(Path("out") / "EXP_ts_01" / "EXP_ts_01_all.star")
+    assert paths[0] == str(Path("out") / "EXP_ts_01_all.star")      # flat by default
     assert rows == [2, 1]
 
 
@@ -127,7 +127,19 @@ def test_plan_without_label_has_no_prefix(tmp_path):
     blocks, key = core.read_star(str(src))
     plan = core.plan_split(blocks[key], "rlnMicrographName", None, outdir=".")
     import os
-    assert plan[0].output_path == os.path.join(".", "ts_01", "ts_01_all.star")
+    assert plan[0].output_path == os.path.join(".", "ts_01_all.star")
+
+
+def test_plan_dir_per_group_nests_each_group(tmp_path):
+    src = _write_single_block(tmp_path / "in.star",
+                              ["ts_01.mrc.tomostar", "ts_02.mrc.tomostar"])
+    blocks, key = core.read_star(str(src))
+    plan = core.plan_split(blocks[key], "rlnMicrographName", "EXP", outdir="out",
+                           dir_per_group=True)
+    assert [item.output_path for item in plan] == [
+        str(Path("out") / "EXP_ts_01" / "EXP_ts_01_all.star"),
+        str(Path("out") / "EXP_ts_02" / "EXP_ts_02_all.star"),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -143,8 +155,8 @@ def test_split_single_block_writes_one_file_per_group(tmp_path):
                                         "--outdir", str(out)])
     assert result.exit_code == 0, result.output
 
-    f1 = out / "EXP_ts_01" / "EXP_ts_01_all.star"
-    f2 = out / "EXP_ts_02" / "EXP_ts_02_all.star"
+    f1 = out / "EXP_ts_01_all.star"
+    f2 = out / "EXP_ts_02_all.star"
     assert f1.exists() and f2.exists()
 
     d1 = starfile.read(str(f1), always_dict=True)
@@ -164,7 +176,7 @@ def test_split_multi_block_preserves_optics(tmp_path):
                                         "--outdir", str(out)])
     assert result.exit_code == 0, result.output
 
-    fa = out / "R_A" / "R_A_all.star"
+    fa = out / "R_A_all.star"
     d = starfile.read(str(fa), always_dict=True)
     assert list(d.keys()) == ["optics", "particles"]     # optics carried through
     assert len(d["particles"]) == 2
@@ -206,7 +218,7 @@ def test_underscored_aliases_still_work(tmp_path):
                                         "--group_by", "rlnTomoName",
                                         "--outdir", str(out)])
     assert result.exit_code == 0, result.output
-    assert (out / "X_A" / "X_A_all.star").exists()
+    assert (out / "X_A_all.star").exists()
 
 
 def test_split_by_arbitrary_single_column(tmp_path):
@@ -224,8 +236,8 @@ def test_split_by_arbitrary_single_column(tmp_path):
                                         "--group-by", "rlnClassNumber",
                                         "--outdir", str(out)])
     assert result.exit_code == 0, result.output
-    assert len(starfile.read(str(out / "C_1" / "C_1_all.star"))) == 2
-    assert len(starfile.read(str(out / "C_2" / "C_2_all.star"))) == 2
+    assert len(starfile.read(str(out / "C_1_all.star"))) == 2
+    assert len(starfile.read(str(out / "C_2_all.star"))) == 2
 
 
 def test_split_by_multiple_columns_uses_combinations(tmp_path):
@@ -246,10 +258,10 @@ def test_split_by_multiple_columns_uses_combinations(tmp_path):
     ])
     assert result.exit_code == 0, result.output
     # Combinations: A/1 (2 rows), A/2 (1), B/1 (1), B/2 (1). Name = <label>_<A>_<class>.
-    assert len(starfile.read(str(out / "X_A_1" / "X_A_1_all.star"))) == 2
-    assert len(starfile.read(str(out / "X_A_2" / "X_A_2_all.star"))) == 1
-    assert len(starfile.read(str(out / "X_B_1" / "X_B_1_all.star"))) == 1
-    assert len(starfile.read(str(out / "X_B_2" / "X_B_2_all.star"))) == 1
+    assert len(starfile.read(str(out / "X_A_1_all.star"))) == 2
+    assert len(starfile.read(str(out / "X_A_2_all.star"))) == 1
+    assert len(starfile.read(str(out / "X_B_1_all.star"))) == 1
+    assert len(starfile.read(str(out / "X_B_2_all.star"))) == 1
     # Every row landed exactly once.
     total = sum(len(starfile.read(str(p))) for p in out.rglob("*_all.star"))
     assert total == 5
@@ -313,10 +325,10 @@ def test_range_split_creates_half_open_bins(tmp_path):
     ])
     assert result.exit_code == 0, result.output
     # 50 -> lt100 ; 100 & 150 -> 100-200 (100 is inclusive lower) ; 250 -> 200-300 ; 400 -> ge300
-    assert len(starfile.read(str(out / "D_lt100" / "D_lt100_all.star"))) == 1
-    assert len(starfile.read(str(out / "D_100-200" / "D_100-200_all.star"))) == 2
-    assert len(starfile.read(str(out / "D_200-300" / "D_200-300_all.star"))) == 1
-    assert len(starfile.read(str(out / "D_ge300" / "D_ge300_all.star"))) == 1
+    assert len(starfile.read(str(out / "D_lt100_all.star"))) == 1
+    assert len(starfile.read(str(out / "D_100-200_all.star"))) == 2
+    assert len(starfile.read(str(out / "D_200-300_all.star"))) == 1
+    assert len(starfile.read(str(out / "D_ge300_all.star"))) == 1
     # empty bins produce no file; every row lands once.
     total = sum(len(starfile.read(str(p))) for p in out.rglob("*_all.star"))
     assert total == 5
@@ -331,8 +343,8 @@ def test_range_value_on_breakpoint_goes_to_upper_bin(tmp_path):
         "--breaks", "100,200,300", "--outdir", str(out),
     ])
     assert result.exit_code == 0, result.output
-    assert (out / "D_200-300" / "D_200-300_all.star").exists()      # [200, 300)
-    assert not (out / "D_100-200").exists()
+    assert (out / "D_200-300_all.star").exists()      # [200, 300)
+    assert not (out / "D_100-200_all.star").exists()
 
 
 def test_range_combines_with_group_by(tmp_path):
@@ -350,9 +362,9 @@ def test_range_combines_with_group_by(tmp_path):
         "--range-by", "rlnDistanceFromtop", "--breaks", "200", "--outdir", str(out),
     ])
     assert result.exit_code == 0, result.output
-    assert (out / "X_A_lt200" / "X_A_lt200_all.star").exists()
-    assert (out / "X_A_ge200" / "X_A_ge200_all.star").exists()
-    assert (out / "X_B_lt200" / "X_B_lt200_all.star").exists()
+    assert (out / "X_A_lt200_all.star").exists()
+    assert (out / "X_A_ge200_all.star").exists()
+    assert (out / "X_B_lt200_all.star").exists()
 
 
 def test_range_by_requires_breaks(tmp_path):
@@ -387,14 +399,14 @@ def test_output_has_provenance_comment(tmp_path):
         "--breaks", "200", "--outdir", str(out),
     ])
     assert result.exit_code == 0, result.output
-    text = (out / "D_lt200" / "D_lt200_all.star").read_text()
+    text = (out / "D_lt200_all.star").read_text()
     head = text.splitlines()[:5]
     assert any("Created by tomo_toolshed split-star" in l for l in head)
     assert any("source:" in l and "run_data.star" in l for l in head)
     assert any("split by:" in l and "range(rlnDistanceFromtop" in l for l in head)
     assert any("this file:" in l and "rlnDistanceFromtop < 200" in l for l in head)
     # The comment must not break re-reading.
-    assert len(starfile.read(str(out / "D_lt200" / "D_lt200_all.star"))) == 1
+    assert len(starfile.read(str(out / "D_lt200_all.star"))) == 1
 
 
 def test_no_comment_flag_omits_header(tmp_path):
@@ -404,7 +416,7 @@ def test_no_comment_flag_omits_header(tmp_path):
     result = runner.invoke(split_star, ["--i", str(src), "--label", "L",
                                         "--outdir", str(out), "--no-comment"])
     assert result.exit_code == 0, result.output
-    text = (out / "L_a" / "L_a_all.star").read_text()
+    text = (out / "L_a_all.star").read_text()
     assert "tomo_toolshed" not in text
 
 
@@ -427,7 +439,7 @@ def test_custom_strip_suffix(tmp_path):
                                         "--outdir", str(out),
                                         "--strip-suffix", ".mrc"])
     assert result.exit_code == 0, result.output
-    assert (out / "X_ts_01" / "X_ts_01_all.star").exists()
+    assert (out / "X_ts_01_all.star").exists()
 
 
 @pytest.mark.parametrize("flavor_col,value,flavor,expected_dir", [
@@ -444,7 +456,7 @@ def test_default_stripping_is_version_appropriate(flavor_col, value, flavor,
     runner = CliRunner()
     result = runner.invoke(split_star, ["--i", str(src), "--outdir", str(out)])
     assert result.exit_code == 0, result.output
-    assert (out / expected_dir / f"{expected_dir}_all.star").exists()
+    assert (out / f"{expected_dir}_all.star").exists()
 
 
 def test_warp_pixelsize_names_split_into_clean_dirs(tmp_path):
@@ -457,8 +469,8 @@ def test_warp_pixelsize_names_split_into_clean_dirs(tmp_path):
     result = runner.invoke(split_star, ["--i", str(src), "--label", "L",
                                         "--outdir", str(out)])
     assert result.exit_code == 0, result.output
-    assert (out / "L_Position_1" / "L_Position_1_all.star").exists()
-    assert (out / "L_Position_2" / "L_Position_2_all.star").exists()
+    assert (out / "L_Position_1_all.star").exists()
+    assert (out / "L_Position_2_all.star").exists()
 
 
 def test_mixed_suffixes_within_one_file_are_each_cleaned(tmp_path):
@@ -477,7 +489,7 @@ def test_mixed_suffixes_within_one_file_are_each_cleaned(tmp_path):
                                         "--outdir", str(out)])
     assert result.exit_code == 0, result.output
     for base in ("L_ts_001", "L_Position_1", "L_foo", "L_Position_2", "L_plain_name"):
-        assert (out / base / f"{base}_all.star").exists(), base
+        assert (out / f"{base}_all.star").exists(), base
 
 
 def test_flavor_is_detected_and_reported():
@@ -487,3 +499,31 @@ def test_flavor_is_detected_and_reported():
         pytest.skip("relion_5 sample not available")
     blocks, key = core.read_star(str(r5))
     assert core.detect_flavor(blocks, blocks[key]) == core.FLAVOR_RELION5
+
+
+# ---------------------------------------------------------------------------
+# Output layout: flat by default, one subdirectory per group on request.
+# ---------------------------------------------------------------------------
+def test_cli_default_writes_flat_no_subdirs(tmp_path):
+    src = _write_single_block(tmp_path / "in.star",
+                              ["ts_01.mrc.tomostar", "ts_02.mrc.tomostar"])
+    out = tmp_path / "out"
+    result = CliRunner().invoke(split_star, ["--i", str(src), "--label", "EXP",
+                                             "--outdir", str(out)])
+    assert result.exit_code == 0, result.output
+    assert sorted(p.name for p in out.iterdir()) == ["EXP_ts_01_all.star",
+                                                      "EXP_ts_02_all.star"]
+    assert not any(p.is_dir() for p in out.iterdir())
+
+
+def test_cli_dir_per_group_writes_subdirs(tmp_path):
+    src = _write_single_block(tmp_path / "in.star",
+                              ["ts_01.mrc.tomostar", "ts_02.mrc.tomostar"])
+    out = tmp_path / "out"
+    result = CliRunner().invoke(split_star, ["--i", str(src), "--label", "EXP",
+                                             "--outdir", str(out),
+                                             "--dir-per-group"])
+    assert result.exit_code == 0, result.output
+    assert (out / "EXP_ts_01" / "EXP_ts_01_all.star").exists()
+    assert (out / "EXP_ts_02" / "EXP_ts_02_all.star").exists()
+    assert not list(out.glob("*.star"))

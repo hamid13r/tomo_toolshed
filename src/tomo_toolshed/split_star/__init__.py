@@ -1,1 +1,1 @@
-"""split-star: split a star file into one per-group star file per subdirectory."""
+"""split-star: split a star file into one star file per group."""

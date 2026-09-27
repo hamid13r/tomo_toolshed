@@ -1,9 +1,9 @@
 """Core logic for split-star: split one star file into per-group star files.
 
 Groups a particle star file by its grouping column (tomogram / micrograph /
-source) and writes one star file per group into its own subdirectory, named
-``<label>_<name>/<label>_<name>_all.star``. This is the natural inverse of
-gathering many per-tilt-series star files into a single project file.
+source) and writes one star file per group, ``<label>_<name>_all.star``, flat
+in the output directory or (``dir_per_group``) each in a ``<label>_<name>/``
+subdirectory. This is the natural inverse of gathering many per-tilt-series star files into a single project file.
 
 There is no ``click`` dependency here; the CLI layer (``cli.py``) wires options
 and reporting. Reading with ``always_dict=True`` keeps every input block, so a
@@ -238,8 +238,11 @@ def split_spec_string(dimensions):
 
 def plan_split(particles, dimensions, label, outdir=".",
                strip_suffixes=DEFAULT_STRIP_SUFFIXES,
-               strip_patterns=DEFAULT_STRIP_PATTERNS):
+               strip_patterns=DEFAULT_STRIP_PATTERNS, dir_per_group=False):
     """Return the list of :class:`PlanItem` to be written.
+
+    Outputs go flat into ``outdir`` as ``<base>_all.star``; with
+    ``dir_per_group`` each goes in its own ``<outdir>/<base>/`` subdirectory.
 
     ``dimensions`` is a single column name, or a list mixing column names and
     :class:`Range` specs; splitting is by the combination of all dimensions, one
@@ -269,7 +272,8 @@ def plan_split(particles, dimensions, label, outdir=".",
         for i in range(len(dims)):
             mask &= (keys_list[i] == combo[i])
         descriptions = [describers[i](combo[i]) for i in range(len(dims))]
-        output_path = os.path.join(outdir, base, base + "_all.star")
+        group_dir = os.path.join(outdir, base) if dir_per_group else outdir
+        output_path = os.path.join(group_dir, base + "_all.star")
         plan.append(PlanItem(combo, base, output_path,
                              int(mask.sum()), mask, descriptions))
     return plan
