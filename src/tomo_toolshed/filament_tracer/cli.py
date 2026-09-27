@@ -2,7 +2,7 @@
 
 Skeletonizes the connected components of a binary segmentation mask, extracts
 each filament's centerline, resamples it into evenly spaced particles with
-per-particle ZYZ Euler angles from the local tangent, and writes a RELION-style
+per-particle ZYZ Euler angles from the local tangent, and writes a RELION 4.x
 helical ``.star`` file. A ChimeraX ``.bild`` overlay is opt-in via ``--bild``.
 """
 
@@ -59,7 +59,7 @@ def trace_filaments(mask, star_out, pixel_size, spacing_a, min_voxels, min_path_
 
     Separates the mask into 26-connected islands, skeletonizes each, extracts
     the longest-path centerline, resamples it at --spacing into particles with
-    ZYZ Euler angles from the local tangent, and writes a RELION helical star.
+    ZYZ Euler angles from the local tangent, and writes a RELION 4 helical star.
     Runs non-interactively for batch use. ChimeraX .bild overlay is opt-in.
 
     \b

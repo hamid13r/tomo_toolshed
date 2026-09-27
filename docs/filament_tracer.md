@@ -1,7 +1,7 @@
 # trace-filaments — filament tracer
 
 Part of [tomo_toolshed](../README.md). Traces filaments in a **binary
-segmentation mask** and exports a RELION-style **helical `.star`** file of evenly
+segmentation mask** and exports a **RELION 4.x helical `.star`** file of evenly
 spaced particles, each carrying a ZYZ Euler orientation derived from the local
 filament tangent. Designed to run non-interactively so it can be batched over
 many tomograms.
@@ -35,7 +35,12 @@ many tomograms.
 
 ## RELION compatibility (helical refinement)
 
-The output targets RELION 4.x helical 3D refinement. RELION 4.0.2's
+**Officially supported target: RELION 4.x** (sub-tomogram, pixel-coordinate
+format). RELION 5's tomography pipeline (pseudo-sub-tomograms, centered Å
+coordinates, `tomograms.star` / optimisation sets) uses a different data model
+and is **not** a target of this tool; convert separately.
+
+RELION 4.0.2's
 `helix.cpp::updatePriorsForHelicalReconstruction` aborts with *"Labels of
 helical prior information are missing!"* unless every particle has
 `rlnAngleTiltPrior`, `rlnAnglePsiPrior`, `rlnHelicalTubeID`,

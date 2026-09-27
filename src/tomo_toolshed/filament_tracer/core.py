@@ -1,6 +1,6 @@
 """Core logic for the filament tracer.
 
-Traces filaments in a binary segmentation mask and exports a RELION-style
+Traces filaments in a binary segmentation mask and exports a RELION 4.x
 helical ``.star`` file of evenly spaced particles with per-particle ZYZ Euler
 angles derived from the local filament tangent. Optionally writes a ChimeraX
 ``.bild`` overlay for visual inspection.
