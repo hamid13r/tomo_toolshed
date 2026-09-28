@@ -1,0 +1,19 @@
+name: tomo-toolshed
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - click
+  - pandas
+  - lxml
+  - numpy
+  - scipy
+  - scikit-image
+  - matplotlib
+  - mrcfile
+  - connected-components-3d
+  - networkx
+  - pytest
+  - pip
+  - pip:
+      - starfile

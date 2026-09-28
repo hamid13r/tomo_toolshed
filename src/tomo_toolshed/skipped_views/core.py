@@ -1,31 +1,35 @@
+"""Core processing logic for the skipped-views tool.
+
+Reads WarpTools tilt-series XML files and updates their ``UseTilt`` values
+based on the corresponding etomo ``taSolution.log`` files (and, optionally,
+per-view dose / tilt-angle constraints). Kept import-clean of click's command
+layer so the behavior can be reused and tested independently of the CLI.
+"""
+
 import os
 import shutil
 import glob
 import pandas as pd
 import xml.etree.ElementTree as ET
 import io
+
 import click
 
-@click.command()
-@click.option('--xml-dir', default='./', help='Directory containing XML files')
-@click.option('--xml-pattern', default='*.xml', help='Pattern to match XML files')
-@click.option('--backup-dir', default='backup_xml', help='Directory to store XML backups')
-@click.option('--tiltstack-dir', default='tiltstack', help='Base directory for tiltstack logs')
-@click.option('--all-true', is_flag=True, default=False, help='Set all UseTilt values to True')
-@click.option('--n-tilts', default=0, help='Number of tilts by dose to keep and discard the rest')
-@click.option('--max-tilt', default=0, help='Maximum tilt angle (calculated from the minimum dose) to keep, others set to False')
-def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts, max_tilt):
+
+def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts, max_tilt):
     """Process XML files and update UseTilt values based on taSolution.log.
+
     Args:
         xml_dir (str): Directory containing XML files.
         xml_pattern (str): Pattern to match XML files.
         backup_dir (str): Directory to store XML backups.
         tiltstack_dir (str): Base directory for tiltstack logs.
+        all_true (bool): Set all UseTilt values to True.
+        n_tilts (int): Number of tilts by dose to keep, discarding the rest.
+        max_tilt (int): Maximum tilt angle (from the minimum-dose view) to keep.
+
     Returns:
         None
-    
-    example
-    python remove_skipped_views.py ./ --xml-pattern '*.xml' --backup-dir backup_xml --tiltstack-dir tiltstack
     """
     xml_files = glob.glob(os.path.join(xml_dir, xml_pattern))
 
@@ -81,7 +85,7 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts, max
                         updated_values[i] = 'False'
                         if value == 'True':
                             changes_made += 1
-            #if n_tilts > 0, first keep the n_tilts lowest dose views as True 
+            #if n_tilts > 0, first keep the n_tilts lowest dose views as True
             elif n_tilts > 0:
                 # Read Dose values from XML and sort them
                 dose_elems = root.findall('Dose')
@@ -99,7 +103,7 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts, max
                     if view_number in views_in_log:
                         updated_values[i] = 'True'
                     else:
-                        updated_values[i] = 'False' 
+                        updated_values[i] = 'False'
                         if value == 'True':
                             changes_made += 1
             elif max_tilt > 0:
@@ -125,6 +129,3 @@ def main(xml_dir, xml_pattern, backup_dir, tiltstack_dir, all_true, n_tilts, max
             click.echo(f"{xml_file}: {changes_made} changes made to UseTilt.")
 
         tree.write(xml_file)
-
-if __name__ == '__main__':
-    main()
