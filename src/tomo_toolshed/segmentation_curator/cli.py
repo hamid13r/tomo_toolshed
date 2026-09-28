@@ -7,10 +7,11 @@ Loads a tomogram + segmentation pair, labels the segmentation into connected
 mask to ``OUTPUT_DIR/<segmentation basename>``. If that output already exists
 the run is skipped (exit 0) without opening the GUI.
 
-If SEGMENTATION is a ``.star`` file (RELION 4.x particles, one tomogram), each
-particle is drawn as a sphere of ``--radius`` Å and becomes its own island;
-after curation the star file is written to ``OUTPUT_DIR/<star basename>`` with
-the deselected (false-positive) particles removed.
+If SEGMENTATION is a particle file -- a ``.star`` (RELION 4.x, one tomogram)
+or a ``.txt`` / ``.box`` list of x y z -- each particle is drawn as a sphere of
+``--radius`` Å and becomes its own island; after curation a star file is
+written to ``OUTPUT_DIR/<name>.star`` with the deselected (false-positive)
+particles removed.
 """
 
 from __future__ import annotations
@@ -62,33 +63,36 @@ from . import particles as particle_ops
     "radius_a",
     type=float,
     default=None,
-    help="[star input] Sphere radius in Å drawn around each particle "
-    "(required for .star input; adjustable in the GUI).",
+    help="[particle input] Sphere radius in Å drawn around each particle "
+    "(required for .star/.txt/.box input; adjustable in the GUI).",
 )
 @click.option(
     "--coord-pixel-size",
     type=float,
     default=None,
-    help="[star input] Pixel size (Å/px) of the star coordinates, if different "
+    help="[particle input] Pixel size (Å/px) of the input coordinates, if different "
     "from the tomogram's. Default: same as the tomogram.",
 )
 @click.option(
     "--tomo-pixel-size",
     type=float,
     default=None,
-    help="[star input] Tomogram pixel size (Å/px). Default: read from the MRC header.",
+    help="[particle input] Tomogram pixel size (Å/px). Default: read from the MRC header.",
 )
 def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, threshold, blur,
          connectivity, color_by_number, radius_a, coord_pixel_size, tomo_pixel_size):
     """Curate a 3D SEGMENTATION over a TOMOGRAM and export to OUTPUT_DIR.
 
-    SEGMENTATION is a mask (.mrc) or a RELION 4 particle .star file. For a
-    .star, each particle is shown as a sphere of --radius Å; the output is the
-    star file with the deselected (false-positive) particles removed.
+    SEGMENTATION is a mask (.mrc), a RELION 4 particle .star file, or a
+    .txt/.box file of x y z coordinates (3 columns). For particle input, each
+    particle is shown as a sphere of --radius Å; the output is a star file with
+    the deselected (false-positive) particles removed.
     """
     connectivity = int(connectivity)
 
-    out_name = os.path.basename(segmentation)
+    particle_input = particle_ops.is_particle_path(segmentation)
+    out_name = (particle_ops.output_star_name(segmentation) if particle_input
+                else os.path.basename(segmentation))
     out_path = os.path.join(output_dir, out_name)
 
     # Skip-if-exists: mirror the old "already processed" behavior.
@@ -96,7 +100,7 @@ def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, threshold, 
         click.echo(f"[skip] Output already exists: {out_path}")
         sys.exit(0)
 
-    if particle_ops.is_star_path(segmentation):
+    if particle_input:
         _curate_particles(tomogram, segmentation, out_path, output_dir, z_min, z_max,
                           blur, color_by_number, radius_a, coord_pixel_size,
                           tomo_pixel_size)
@@ -105,7 +109,7 @@ def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, threshold, 
                  "--tomo-pixel-size": tomo_pixel_size}
     given = [k for k, v in star_only.items() if v is not None]
     if given:
-        raise click.UsageError(f"{', '.join(given)} only apply to .star input.")
+        raise click.UsageError(f"{', '.join(given)} only apply to particle input (.star/.txt/.box).")
 
     # Ask for the confidence threshold up front (skip the prompt if supplied).
     if threshold is None:
@@ -195,11 +199,11 @@ def _maybe_blur(tomo, blur):
     return tomo
 
 
-def _curate_particles(tomogram, star_path, out_path, output_dir, z_min, z_max, blur,
+def _curate_particles(tomogram, particles_path, out_path, output_dir, z_min, z_max, blur,
                       color_by_number, radius_a, coord_pixel_size, tomo_pixel_size):
-    """Star-file mode: particles -> spheres -> GUI -> star minus rejected rows."""
+    """Particle mode: star or xyz text -> spheres -> GUI -> star minus rejected rows."""
     if radius_a is None or radius_a <= 0:
-        raise click.UsageError("--radius (sphere radius in Å, > 0) is required for .star input.")
+        raise click.UsageError("--radius (sphere radius in Å, > 0) is required for particle input.")
 
     if tomo_pixel_size is None:
         vs = mrc_io.get_voxel_size(tomogram)
@@ -208,9 +212,9 @@ def _curate_particles(tomogram, star_path, out_path, output_dir, z_min, z_max, b
             raise click.UsageError(
                 "tomogram MRC header has no pixel size; pass --tomo-pixel-size.")
 
-    click.echo(f"Reading particles:    {star_path}")
+    click.echo(f"Reading particles:    {particles_path}")
     try:
-        blocks, key, df = particle_ops.load_particles(star_path)
+        blocks, key, df = particle_ops.load_particles(particles_path)
     except particle_ops.ParticleStarError as exc:
         raise click.ClickException(str(exc))
     click.echo(f"Reading tomogram:     {tomogram}")

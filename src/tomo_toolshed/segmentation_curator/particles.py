@@ -1,4 +1,8 @@
-"""Particle (star-file) mode for the curator: star -> spheres -> filtered star.
+"""Particle mode for the curator: star / xyz text -> spheres -> filtered star.
+
+Input is a particle ``.star`` file or a plain-text coordinate list (``.txt`` /
+``.box``: three columns x y z, whitespace- or comma-separated, ``#`` comments
+allowed). The output is always a star file.
 
 Each particle is painted as a sphere and becomes its own "island" whose label
 is ``row index + 1``, so toggling an island in the GUI toggles exactly one
@@ -13,7 +17,8 @@ Volumes are (Z, Y, X).
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+import os
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -32,16 +37,67 @@ class ParticleStarError(ValueError):
     """A star file that particle mode cannot use."""
 
 
+TEXT_COORD_EXTENSIONS = (".txt", ".box")
+
+
 def is_star_path(path: str) -> bool:
     return str(path).lower().endswith(".star")
+
+
+def is_text_coords_path(path: str) -> bool:
+    return str(path).lower().endswith(TEXT_COORD_EXTENSIONS)
+
+
+def is_particle_path(path: str) -> bool:
+    """True for any particle-mode input (star or xyz text)."""
+    return is_star_path(path) or is_text_coords_path(path)
+
+
+def output_star_name(path: str) -> str:
+    """Output file name: the star's own name, or ``<stem>.star`` for text input."""
+    name = os.path.basename(str(path))
+    return name if is_star_path(name) else os.path.splitext(name)[0] + ".star"
+
+
+def load_text_coordinates(path: str):
+    """Read a 3-column x y z text file into ``(blocks, key, df)``.
+
+    The result is a single ``particles`` block with ``rlnCoordinateX/Y/Z``, so
+    it flows through the same curation and star writing as star input.
+    """
+    rows = []
+    with open(path) as f:
+        for lineno, line in enumerate(f, start=1):
+            line = line.split("#", 1)[0].replace(",", " ").strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) != 3:
+                raise ParticleStarError(
+                    f"{path}:{lineno}: expected 3 columns (x y z), got {len(parts)}")
+            try:
+                rows.append([float(v) for v in parts])
+            except ValueError:
+                raise ParticleStarError(
+                    f"{path}:{lineno}: non-numeric coordinate in {line!r}")
+    if not rows:
+        raise ParticleStarError(f"{path}: no coordinates found")
+    xyz = np.asarray(rows)
+    df = pd.DataFrame({c: xyz[:, i] for i, c in enumerate(COORD_COLUMNS)})
+    return {"particles": df}, "particles", df
 
 
 def load_particles(path: str):
     """Read ``path`` and return ``(blocks, particles_key, particles_df)``.
 
+    Text coordinate files (``.txt`` / ``.box``) go through
+    :func:`load_text_coordinates`; anything else is read as a star file.
+
     Raises :class:`ParticleStarError` if the coordinate columns are missing or
     the file holds particles from more than one tomogram.
     """
+    if is_text_coords_path(path):
+        return load_text_coordinates(path)
     blocks, key = read_star(path)
     df = blocks[key]
     missing = [c for c in COORD_COLUMNS if c not in df.columns]

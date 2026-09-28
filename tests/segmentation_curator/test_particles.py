@@ -157,4 +157,54 @@ def test_cli_star_options_rejected_for_mask_input(tmp_path):
                                       str(tmp_path / "out"), "--radius", "5",
                                       "--threshold", "0"])
     assert res.exit_code != 0
-    assert "only apply to .star input" in res.output
+    assert "only apply to particle input" in res.output
+
+
+# ------------------------------------------------------------------ xyz text
+@pytest.mark.parametrize("ext", [".txt", ".box"])
+def test_load_text_coordinates(tmp_path, ext):
+    path = tmp_path / f"picks{ext}"
+    path.write_text("# x y z\n1 2 3\n4.5\t5.5\t6.5\n\n7,8,9  # comma-separated\n")
+    blocks, key, df = P.load_particles(str(path))
+    assert key == "particles" and list(blocks) == ["particles"]
+    assert list(df.columns) == list(P.COORD_COLUMNS)
+    np.testing.assert_allclose(df.to_numpy(), [[1, 2, 3], [4.5, 5.5, 6.5], [7, 8, 9]])
+
+
+def test_text_coordinates_wrong_column_count(tmp_path):
+    path = tmp_path / "bad.txt"
+    path.write_text("1 2 3\n4 5\n")
+    with pytest.raises(P.ParticleStarError, match=":2: expected 3 columns"):
+        P.load_particles(str(path))
+
+
+def test_output_star_name():
+    assert P.output_star_name("/a/picks.star") == "picks.star"
+    assert P.output_star_name("/a/picks.txt") == "picks.star"
+    assert P.output_star_name("/a/tomo_01.coords.box") == "tomo_01.coords.star"
+
+
+def test_cli_text_input_writes_star(tmp_path, monkeypatch):
+    from tomo_toolshed.segmentation_curator import gui
+
+    class FakeGUI:
+        def __init__(self, **kw):
+            self.selected = set(kw["selected"])
+
+        def run(self):
+            self.selected.discard(1)          # reject the first pick
+            return None
+
+    monkeypatch.setattr(gui, "SegmentationCuratorGUI", FakeGUI)
+    tomo_path, _ = _setup_cli(tmp_path)
+    txt = tmp_path / "picks.txt"
+    txt.write_text("5 5 5\n15 15 15\n5 15 10\n")
+    out_dir = tmp_path / "out"
+    res = CliRunner().invoke(curate, [str(tomo_path), str(txt), str(out_dir),
+                                      "--radius", "20"])
+    assert res.exit_code == 0, res.output
+    back = starfile.read(str(out_dir / "picks.star"), always_dict=True)
+    np.testing.assert_allclose(
+        back["particles"][list(P.COORD_COLUMNS)].to_numpy(),
+        [[15, 15, 15], [5, 15, 10]])
+    assert not (out_dir / "picks.txt").exists()

@@ -69,26 +69,33 @@ message and exits `0` *without* opening the GUI. Delete the file to re-curate.
 | `--connectivity {6,18,26}` | `26` | Connected-components connectivity. |
 | `--color-by-number / --all-green` | `--all-green` | Initial overlay mode. |
 
-## Particle star input (remove false-positive picks)
+## Particle input (remove false-positive picks)
 
-Pass a RELION 4 particle `.star` file instead of a mask, plus `--radius`:
+Pass a particle file instead of a mask, plus `--radius`. Either a RELION 4
+`.star` file, or a plain `.txt` / `.box` coordinate list with three columns
+`x y z` (whitespace- or comma-separated; `#` comments and blank lines are
+ignored). The output is **always a star file**.
 
 ```bash
 tomo_toolshed curate TOMOGRAM particles.star OUTPUT_DIR --radius 60
+tomo_toolshed curate TOMOGRAM picks.txt      OUTPUT_DIR --radius 60   # -> OUTPUT_DIR/picks.star
 ```
 
 Each particle is drawn as a sphere of `--radius` Å and becomes its own island,
 numbered by its row in the star file (row 1 = id 1). Overlapping spheres are
 split by nearest center, so close particles never merge. Curate as usual —
 click a sphere to reject/restore that particle — and on quit the tool writes
-`OUTPUT_DIR/<star basename>` containing only the **selected** particles. Every
-column and the `optics`/`general` blocks pass through unchanged; only rows are
-removed.
+`OUTPUT_DIR/<star basename>` (or `OUTPUT_DIR/<stem>.star` for `.txt`/`.box`
+input) containing only the **selected** particles. For star input every column
+and the `optics`/`general` blocks pass through unchanged; only rows are
+removed. For text input the star has one `particles` block with
+`rlnCoordinateX/Y/Z`, in the input's original units (not rescaled).
 
 - **One tomogram per star file.** If `rlnTomoName` / `rlnMicrographName` /
   `wrpSourceName` has more than one value, the tool stops; split first with
   [`split-star`](split_star.md).
-- **Coordinates** are RELION 4 `rlnCoordinateX/Y/Z` in pixels; `rlnOrigin*Angst`
+- **Coordinates** are RELION 4 `rlnCoordinateX/Y/Z` (or the text file's x y z)
+  in pixels; `rlnOrigin*Angst`
   shifts are applied if present. If the coordinates are at a different binning
   than the tomogram, give their pixel size with `--coord-pixel-size`. The
   tomogram's pixel size comes from its MRC header, or `--tomo-pixel-size`.
@@ -97,13 +104,13 @@ removed.
   Dilate/Erode (display only; the output star is unaffected), **Renumber** is
   hidden (ids must stay tied to star rows), and **Apply Z-range** / `--z-min` /
   `--z-max` *deselect* particles whose center is outside the range.
-- `--threshold`, `--min-size` and `--connectivity` do not apply to star input.
+- `--threshold`, `--min-size` and `--connectivity` do not apply to particle input.
 - Particles outside the tomogram volume are not drawn and are kept.
 
-| Star-mode option | Default | Meaning |
+| Particle-mode option | Default | Meaning |
 |---|---|---|
 | `--radius FLOAT` | *(required)* | Sphere radius in Å. |
-| `--coord-pixel-size FLOAT` | tomogram's | Pixel size (Å/px) of the star coordinates. |
+| `--coord-pixel-size FLOAT` | tomogram's | Pixel size (Å/px) of the input coordinates. |
 | `--tomo-pixel-size FLOAT` | MRC header | Tomogram pixel size (Å/px). |
 
 ## Mouse & keyboard cheat-sheet

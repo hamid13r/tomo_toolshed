@@ -29,7 +29,7 @@ def tomo_toolshed():
 
     \b
     skipped-views      Prune skipped etomo views from WarpTools tilt-series XML.
-    curate             Curate a 3D segmentation (mask or particle star) over a tomogram.
+    curate             Curate a mask, or particle picks (star/txt/box), over a tomogram.
     add-defocus        Add Warp XML average defocus to an IsoNet star file.
     trace-filaments    Trace filaments in a mask into a RELION helical star file.
     dipole2star        Collapse manual dipole picks into an oriented-particle star file.
