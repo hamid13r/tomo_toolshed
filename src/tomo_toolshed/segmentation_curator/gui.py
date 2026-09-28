@@ -7,6 +7,13 @@ construction time so the rest of the package stays headless-importable.
 
 Volume axis order is (Z, Y, X). The left panel is the Z view (a Y-X plane at
 fixed Z); the right panel is the Y view (a Z-X plane at fixed Y).
+
+Particle mode (``particle_centers`` given): each island is one star-file
+particle painted as a sphere, with a fixed id (row + 1). Operations that would
+merge, split or renumber islands (dilate/erode, renumber) are replaced by a
+sphere-radius control, and the Z-range deselects particles by center instead of
+cropping voxels. ``run()`` still returns the binary mask; the kept particle ids
+are ``self.selected``.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ import numpy as np
 
 from . import colormaps
 from . import labeling
+from . import particles as particle_ops
 
 
 class SegmentationCuratorGUI:
@@ -29,6 +37,9 @@ class SegmentationCuratorGUI:
         connectivity: int = 26,
         color_by_number: bool = False,
         selected: Optional[Set[int]] = None,
+        particle_centers: Optional[np.ndarray] = None,
+        radius_a: Optional[float] = None,
+        pixel_size: Optional[float] = None,
     ):
         # Lazy matplotlib imports -- keep module import headless-safe.
         import matplotlib.pyplot as plt
@@ -45,6 +56,14 @@ class SegmentationCuratorGUI:
         self.connectivity = connectivity
 
         self.nz, self.ny, self.nx = self.labels.shape
+
+        # Particle mode: fixed per-particle ids, sphere radius is adjustable.
+        self.particle_mode = particle_centers is not None
+        self.centers = None if particle_centers is None else np.asarray(particle_centers)
+        self.radius_a = radius_a
+        self.pixel_size = pixel_size
+        self._orig_radius_a = radius_a
+        self._noun = "Particle" if self.particle_mode else "Island"
 
         # Selection / view state.
         if selected is None:
@@ -170,16 +189,25 @@ class SegmentationCuratorGUI:
         self.tb_minsize = self._TextBox(_ax(0.06, 0.26, 0.05, 0.035), "Min size ", initial="0")
         self.b_filter = self._Button(_ax(0.17, 0.26, 0.10, 0.035), "Apply Filter")
         self.b_filter.on_clicked(self._on_apply_filter)
-        self.tb_radius = self._TextBox(_ax(0.31, 0.26, 0.04, 0.035), "Radius ", initial="1")
-        self.tb_iters = self._TextBox(_ax(0.40, 0.26, 0.04, 0.035), "Iters ", initial="1")
-        self.b_dilate = self._Button(_ax(0.45, 0.26, 0.07, 0.035), "Dilate")
-        self.b_dilate.on_clicked(self._on_dilate)
-        self.b_erode = self._Button(_ax(0.53, 0.26, 0.07, 0.035), "Erode")
-        self.b_erode.on_clicked(self._on_erode)
+        if self.particle_mode:
+            # Sphere radius (Å) replaces dilate/erode, which would merge or
+            # split particles. Display only: the output star is unaffected.
+            self.tb_sphere = self._TextBox(
+                _ax(0.38, 0.26, 0.06, 0.035), "Sphere radius (Å) ",
+                initial=f"{self.radius_a:g}")
+            self.b_sphere = self._Button(_ax(0.45, 0.26, 0.09, 0.035), "Apply radius")
+            self.b_sphere.on_clicked(self._on_apply_radius)
+        else:
+            self.tb_radius = self._TextBox(_ax(0.31, 0.26, 0.04, 0.035), "Radius ", initial="1")
+            self.tb_iters = self._TextBox(_ax(0.40, 0.26, 0.04, 0.035), "Iters ", initial="1")
+            self.b_dilate = self._Button(_ax(0.45, 0.26, 0.07, 0.035), "Dilate")
+            self.b_dilate.on_clicked(self._on_dilate)
+            self.b_erode = self._Button(_ax(0.53, 0.26, 0.07, 0.035), "Erode")
+            self.b_erode.on_clicked(self._on_erode)
 
         # Row 3: go-to / highlight / color mode. The island-id box is flanked by
         # prev/next buttons that step to the neighbouring island and go there.
-        self.fig.text(0.045, 0.221, "Island ID", fontsize=9)
+        self.fig.text(0.045, 0.221, f"{self._noun} ID", fontsize=9)
         self.b_prev = self._Button(_ax(0.095, 0.21, 0.028, 0.035), "\u25c0")
         self.b_prev.on_clicked(self._on_prev_island)
         self.tb_island = self._TextBox(_ax(0.128, 0.21, 0.045, 0.035), "", initial="1")
@@ -193,8 +221,9 @@ class SegmentationCuratorGUI:
         self.b_color.on_clicked(self._on_toggle_color)
 
         # Row 4: selection ops.
-        self.b_renumber = self._Button(_ax(0.06, 0.16, 0.09, 0.035), "Renumber")
-        self.b_renumber.on_clicked(self._on_renumber)
+        if not self.particle_mode:  # ids must stay = star rows in particle mode
+            self.b_renumber = self._Button(_ax(0.06, 0.16, 0.09, 0.035), "Renumber")
+            self.b_renumber.on_clicked(self._on_renumber)
         self.b_reset = self._Button(_ax(0.16, 0.16, 0.08, 0.035), "Reset")
         self.b_reset.on_clicked(self._on_reset)
         self.b_selall = self._Button(_ax(0.25, 0.16, 0.09, 0.035), "Select All")
@@ -292,9 +321,9 @@ class SegmentationCuratorGUI:
         # Highlighted island info.
         if self.highlight_id and self.highlight_id <= self.n:
             hsize = int(self.sizes[self.highlight_id])
-            hi = f"Island {self.highlight_id}: {hsize} vox"
+            hi = f"{self._noun} {self.highlight_id}: {hsize} vox"
         else:
-            hi = "Island --: -- vox"
+            hi = f"{self._noun} --: -- vox"
         # Smallest and largest currently selected islands.
         smallest = "Smallest: -- (-- vox)"
         largest = "Largest: -- (-- vox)"
@@ -312,7 +341,7 @@ class SegmentationCuratorGUI:
     def _refresh_status(self, msg: str = None):
         sel_vox = int(self.sizes[list(self.selected)].sum()) if self.selected else 0
         base = (
-            f"islands: {self.n}   selected: {len(self.selected)}   "
+            f"{self._noun.lower()}s: {self.n}   selected: {len(self.selected)}   "
             f"selected voxels: {sel_vox}   "
             f"z={self.z_idx}/{self.nz-1}  y={self.y_idx}/{self.ny-1}  "
             f"mode: {self.color_mode}"
@@ -378,10 +407,38 @@ class SegmentationCuratorGUI:
     def _on_apply_zrange(self, _event):
         zmin = self._parse_int(self.tb_zmin, 0)
         zmax = self._parse_int(self.tb_zmax, self.nz - 1)
+        if self.particle_mode:
+            inside = particle_ops.ids_in_zrange(self.centers, zmin, zmax)
+            before = len(self.selected)
+            self.selected &= inside
+            self._full_refresh(
+                f"Z-range [{zmin}, {zmax}]: deselected {before - len(self.selected)} "
+                "particles centered outside it (reversible).")
+            return
         binary = self._current_binary()
         binary = labeling.apply_zrange(binary, zmin, zmax)
         self._relabel_from_binary(binary)
         self._full_refresh(f"Applied Z-range [{zmin}, {zmax}]; relabeled to {self.n} islands.")
+
+    def _on_apply_radius(self, _event):
+        try:
+            radius_a = float(self.tb_sphere.text)
+        except (ValueError, TypeError):
+            radius_a = -1.0
+        if radius_a <= 0:
+            self._full_refresh(f"Invalid sphere radius {self.tb_sphere.text!r}.")
+            return
+        self._repaint_spheres(radius_a)
+        self._full_refresh(
+            f"Sphere radius {radius_a:g} Å ({radius_a / self.pixel_size:.1f} px); "
+            "selection kept.")
+
+    def _repaint_spheres(self, radius_a: float):
+        """Repaint particle spheres at ``radius_a`` Å; ids and selection kept."""
+        self.radius_a = float(radius_a)
+        self.labels = particle_ops.paint_spheres(
+            self.labels.shape, self.centers, self.radius_a / self.pixel_size)
+        self._recompute_tables()
 
     def _on_apply_filter(self, _event):
         min_size = self._parse_int(self.tb_minsize, 0)
@@ -481,6 +538,9 @@ class SegmentationCuratorGUI:
     def _on_reset(self, _event):
         self.labels = self._orig_labels.copy()
         self.n = self._orig_n
+        if self.particle_mode:
+            self.radius_a = self._orig_radius_a
+            self.tb_sphere.set_val(f"{self.radius_a:g}")
         self._recompute_tables()
         self.selected = set(self._orig_selected)
         self.highlight_id = None
