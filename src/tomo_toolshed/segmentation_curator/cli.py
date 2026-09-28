@@ -79,8 +79,15 @@ from . import particles as particle_ops
     default=None,
     help="[particle input] Tomogram pixel size (Å/px). Default: read from the MRC header.",
 )
+@click.option(
+    "--tomo-name",
+    default=None,
+    help="[.txt/.box input] rlnTomoName written to every output row. "
+    "Default: the tomogram file name without its extension.",
+)
 def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, threshold, blur,
-         connectivity, color_by_number, radius_a, coord_pixel_size, tomo_pixel_size):
+         connectivity, color_by_number, radius_a, coord_pixel_size, tomo_pixel_size,
+         tomo_name):
     """Curate a 3D SEGMENTATION over a TOMOGRAM and export to OUTPUT_DIR.
 
     SEGMENTATION is a mask (.mrc), a RELION 4 particle .star file, or a
@@ -100,10 +107,12 @@ def main(tomogram, segmentation, output_dir, z_min, z_max, min_size, threshold, 
         click.echo(f"[skip] Output already exists: {out_path}")
         sys.exit(0)
 
+    if tomo_name is not None and not particle_ops.is_text_coords_path(segmentation):
+        raise click.UsageError("--tomo-name only applies to .txt/.box input.")
     if particle_input:
         _curate_particles(tomogram, segmentation, out_path, output_dir, z_min, z_max,
                           blur, color_by_number, radius_a, coord_pixel_size,
-                          tomo_pixel_size)
+                          tomo_pixel_size, tomo_name)
         return
     star_only = {"--radius": radius_a, "--coord-pixel-size": coord_pixel_size,
                  "--tomo-pixel-size": tomo_pixel_size}
@@ -200,7 +209,8 @@ def _maybe_blur(tomo, blur):
 
 
 def _curate_particles(tomogram, particles_path, out_path, output_dir, z_min, z_max, blur,
-                      color_by_number, radius_a, coord_pixel_size, tomo_pixel_size):
+                      color_by_number, radius_a, coord_pixel_size, tomo_pixel_size,
+                      tomo_name=None):
     """Particle mode: star or xyz text -> spheres -> GUI -> star minus rejected rows."""
     if radius_a is None or radius_a <= 0:
         raise click.UsageError("--radius (sphere radius in Å, > 0) is required for particle input.")
@@ -213,8 +223,12 @@ def _curate_particles(tomogram, particles_path, out_path, output_dir, z_min, z_m
                 "tomogram MRC header has no pixel size; pass --tomo-pixel-size.")
 
     click.echo(f"Reading particles:    {particles_path}")
+    if particle_ops.is_text_coords_path(particles_path):
+        if tomo_name is None:
+            tomo_name = particle_ops.tomo_name_from_path(tomogram)
+        click.echo(f"rlnTomoName:          {tomo_name}")
     try:
-        blocks, key, df = particle_ops.load_particles(particles_path)
+        blocks, key, df = particle_ops.load_particles(particles_path, tomo_name)
     except particle_ops.ParticleStarError as exc:
         raise click.ClickException(str(exc))
     click.echo(f"Reading tomogram:     {tomogram}")

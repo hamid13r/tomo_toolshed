@@ -59,11 +59,17 @@ def output_star_name(path: str) -> str:
     return name if is_star_path(name) else os.path.splitext(name)[0] + ".star"
 
 
-def load_text_coordinates(path: str):
+def tomo_name_from_path(path: str) -> str:
+    """Default ``rlnTomoName``: the tomogram file name without its extension."""
+    return os.path.splitext(os.path.basename(str(path)))[0]
+
+
+def load_text_coordinates(path: str, tomo_name: Optional[str] = None):
     """Read a 3-column x y z text file into ``(blocks, key, df)``.
 
-    The result is a single ``particles`` block with ``rlnCoordinateX/Y/Z``, so
-    it flows through the same curation and star writing as star input.
+    The result is a single ``particles`` block with ``rlnCoordinateX/Y/Z`` (and
+    ``rlnTomoName`` on every row when ``tomo_name`` is given), so it flows
+    through the same curation and star writing as star input.
     """
     rows = []
     with open(path) as f:
@@ -84,20 +90,23 @@ def load_text_coordinates(path: str):
         raise ParticleStarError(f"{path}: no coordinates found")
     xyz = np.asarray(rows)
     df = pd.DataFrame({c: xyz[:, i] for i, c in enumerate(COORD_COLUMNS)})
+    if tomo_name:
+        df["rlnTomoName"] = str(tomo_name)
     return {"particles": df}, "particles", df
 
 
-def load_particles(path: str):
+def load_particles(path: str, tomo_name: Optional[str] = None):
     """Read ``path`` and return ``(blocks, particles_key, particles_df)``.
 
     Text coordinate files (``.txt`` / ``.box``) go through
-    :func:`load_text_coordinates`; anything else is read as a star file.
+    :func:`load_text_coordinates` (``tomo_name`` fills ``rlnTomoName``);
+    anything else is read as a star file and ``tomo_name`` is not used.
 
     Raises :class:`ParticleStarError` if the coordinate columns are missing or
     the file holds particles from more than one tomogram.
     """
     if is_text_coords_path(path):
-        return load_text_coordinates(path)
+        return load_text_coordinates(path, tomo_name)
     blocks, key = read_star(path)
     df = blocks[key]
     missing = [c for c in COORD_COLUMNS if c not in df.columns]

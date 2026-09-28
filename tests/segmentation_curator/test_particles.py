@@ -169,6 +169,19 @@ def test_load_text_coordinates(tmp_path, ext):
     assert key == "particles" and list(blocks) == ["particles"]
     assert list(df.columns) == list(P.COORD_COLUMNS)
     np.testing.assert_allclose(df.to_numpy(), [[1, 2, 3], [4.5, 5.5, 6.5], [7, 8, 9]])
+    assert "rlnTomoName" not in df.columns             # only added when named
+
+
+def test_load_text_coordinates_adds_tomo_name(tmp_path):
+    path = tmp_path / "picks.txt"
+    path.write_text("1 2 3\n4 5 6\n")
+    _, _, df = P.load_particles(str(path), tomo_name="TS_01")
+    assert list(df["rlnTomoName"]) == ["TS_01", "TS_01"]
+
+
+def test_tomo_name_from_path():
+    assert P.tomo_name_from_path("/data/TS_01.mrc") == "TS_01"
+    assert P.tomo_name_from_path("TS_01_10.00Apx.rec") == "TS_01_10.00Apx"
 
 
 def test_text_coordinates_wrong_column_count(tmp_path):
@@ -207,4 +220,22 @@ def test_cli_text_input_writes_star(tmp_path, monkeypatch):
     np.testing.assert_allclose(
         back["particles"][list(P.COORD_COLUMNS)].to_numpy(),
         [[15, 15, 15], [5, 15, 10]])
+    assert list(back["particles"]["rlnTomoName"]) == ["tomo", "tomo"]   # tomo.mrc
     assert not (out_dir / "picks.txt").exists()
+
+    # --tomo-name overrides the default
+    out2 = tmp_path / "out2"
+    res = CliRunner().invoke(curate, [str(tomo_path), str(txt), str(out2),
+                                      "--radius", "20", "--tomo-name", "TS_07"])
+    assert res.exit_code == 0, res.output
+    back = starfile.read(str(out2 / "picks.star"), always_dict=True)
+    assert set(back["particles"]["rlnTomoName"]) == {"TS_07"}
+
+
+def test_cli_tomo_name_rejected_for_star_input(tmp_path):
+    tomo_path, star_path = _setup_cli(tmp_path)
+    res = CliRunner().invoke(curate, [str(tomo_path), str(star_path),
+                                      str(tmp_path / "out"), "--radius", "20",
+                                      "--tomo-name", "X"])
+    assert res.exit_code != 0
+    assert "only applies to .txt/.box input" in res.output

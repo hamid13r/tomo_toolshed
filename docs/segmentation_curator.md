@@ -89,7 +89,9 @@ click a sphere to reject/restore that particle — and on quit the tool writes
 input) containing only the **selected** particles. For star input every column
 and the `optics`/`general` blocks pass through unchanged; only rows are
 removed. For text input the star has one `particles` block with
-`rlnCoordinateX/Y/Z`, in the input's original units (not rescaled).
+`rlnCoordinateX/Y/Z`, in the input's original units (not rescaled), plus
+`rlnTomoName` on every row — the tomogram file name without its extension
+(`TS_01.mrc` → `TS_01`), or the value of `--tomo-name`.
 
 - **One tomogram per star file.** If `rlnTomoName` / `rlnMicrographName` /
   `wrpSourceName` has more than one value, the tool stops; split first with
@@ -112,6 +114,7 @@ removed. For text input the star has one `particles` block with
 | `--radius FLOAT` | *(required)* | Sphere radius in Å. |
 | `--coord-pixel-size FLOAT` | tomogram's | Pixel size (Å/px) of the input coordinates. |
 | `--tomo-pixel-size FLOAT` | MRC header | Tomogram pixel size (Å/px). |
+| `--tomo-name TEXT` | tomogram file stem | `.txt`/`.box` input only: `rlnTomoName` written to every output row. |
 
 ## Mouse & keyboard cheat-sheet
 
