@@ -197,8 +197,15 @@ def positions_one_tilt(model, t, coords_phys, size_rounding=(1.0, 1.0, 1.0),
         tx = tx - model.grid_movement_x.interpolate(trans_norm)
         ty = ty - model.grid_movement_y.interpolate(trans_norm)
 
-    dc = np.stack([coord[:, 0] / Vx, coord[:, 1] / Vy, np.full(m, t * gstep)], axis=1)
-    defocus_um = model.grid_ctf_defocus.interpolate(dc) + 1e-4 * zc
+    gx_, gy_, _gz = model.grid_ctf_defocus.dims
+    if gx_ <= 1 and gy_ <= 1:
+        # per-tilt-only defocus grid (the usual case): one value for every
+        # point, so evaluate it once instead of a cubic spline per point
+        gdef = model.grid_ctf_defocus.interpolate(np.array([[0.5, 0.5, t * gstep]]))[0]
+    else:
+        dc = np.stack([coord[:, 0] / Vx, coord[:, 1] / Vy, np.full(m, t * gstep)], axis=1)
+        gdef = model.grid_ctf_defocus.interpolate(dc)
+    defocus_um = gdef + 1e-4 * zc
 
     sr = np.asarray(size_rounding, np.float64)
     return tx * sr[0], ty * sr[1], defocus_um * sr[2]

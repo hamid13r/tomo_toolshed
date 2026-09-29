@@ -209,10 +209,16 @@ def main():
     ap.add_argument("--novactf_no_astig", action="store_true",
                     help="--engine novactf: ignore per-tilt astigmatism "
                          "(novaCTF -CorrectAstigmatism 0)")
-    ap.add_argument("--novactf_geometry_step", type=int, default=8,
+    ap.add_argument("--novactf_device", default="cpu",
+                    help="--engine novactf: 'cpu' (default, numba) or a PyTorch device "
+                         "such as 'cuda' or 'cuda:1' -- FFTs, CTF copies and the "
+                         "back-projection then run on the GPU (needs torch with CUDA; "
+                         "~4 GB GPU memory at 6.64 A/px on this series)")
+    ap.add_argument("--novactf_geometry_step", type=int, default=16,
                     help="--engine novactf: voxels between exact geometry "
                          "evaluations (trilinear in between; the mapping is affine "
-                         "apart from the smooth local-motion grids)")
+                         "apart from the smooth local-motion grids: max 0.003 px error "
+                         "at 16, 0.0009 px at 8 on HRR021_2 at 6.64 A/px)")
 
     # experimentation hooks
     ap.add_argument("--dose_bfactor_scale", type=float, default=None,
@@ -285,7 +291,8 @@ def main():
             correct_astigmatism=not args.novactf_no_astig,
             local_motion=not (args.novactf_no_local_motion or args.no_local_motion),
             weighting=args.novactf_weighting,
-            geometry_step=args.novactf_geometry_step),
+            geometry_step=args.novactf_geometry_step,
+            device=args.novactf_device),
     )
 
     if args.engine == "novactf":

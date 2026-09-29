@@ -404,6 +404,27 @@ geometry and tilt preprocessing, the numba back-projection, and preparation
 of tilt j+1 overlapping the back-projection of tilt j. The back-projection
 (memory-bound plane gathers) is ~half of what is left.
 
+**GPU back end** (`--novactf_device cuda`, or `cuda:N`): the FFTs, CTF
+copies and back-projection run on the GPU through PyTorch, with a fused
+`numba.cuda` back-projection kernel (float32 throughout: RTX-class GPUs run
+fp64 at 1/32 rate). The coarse geometry stays on the CPU, prepared for tilt
+j+1 while the GPU works on tilt j. Needs torch with CUDA; `numba.cuda` is
+optional (without it a pure-torch kernel is used, ~8x slower). Same volume
+as the CPU path: correlation 0.999999 on HRR021_2_S02_L02_ts_003, and a
+GPU-vs-CPU check in `validate.py`. Measured end to end on one RTX A5000
+(`tomoannotator` env):
+
+| | CPU (64 cores) | GPU |
+|---|---|---|
+| 6.64 A/px, 1024x1440x600 | 31 s | **18 s** (~5 GB GPU memory) |
+| 13.28 A/px, 512x720x300 | 11 s | **8 s** |
+
+At 6.64 A/px about 8 s of the GPU run is loading, preprocessing, the torch
+import and writing the 3.5 GB volume. On the GPU the reconstruction itself
+(~10 s) is limited by the CPU-side geometry. The default
+`--novactf_geometry_step` is now 16 (was 8): max 0.003 px position error,
+volume correlation 0.999999 with the old default.
+
 `--threads N` sets the thread count for all engines (FFTs, numba kernels,
 thread pools, and IMOD `tilt` via OMP_NUM_THREADS; `warp_recon.set_threads`
 from Python). The default is the CPUs the process may run on

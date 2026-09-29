@@ -86,7 +86,9 @@ class NovaCTFOptions:
     correct_astigmatism: bool = True
     local_motion: bool = True          # use Warp's GridMovementX/Y
     weighting: str = "none"            # "none" = novaCTF's; "warp" = + weighting_fn scale & dose filter
-    geometry_step: int = 8             # voxels between exact geometry evaluations
+    geometry_step: int = 16            # voxels between exact geometry evaluations (trilinear
+                                       # in between: <= 0.003 px error at 16 on HRR021_2)
+    device: str = "cpu"                # "cpu" (numba) or a torch device, e.g. "cuda", "cuda:1"
 
 
 # --------------------------------------------------------------------------- #
@@ -279,7 +281,10 @@ def _defocus_planes(F, defs, ctf_terms, correction, shape_pad, shape_out, batch=
 def _positions_threaded(pool, model, t, pts, size_rounding, local_motion, nchunks):
     """positions_one_tilt over chunks of points in a thread pool: its cost is
     numpy + scipy map_coordinates, both of which release the GIL."""
-    if pool is None or len(pts) < 50_000:
+    # ~60k points per chunk: smaller chunks lose to per-call overhead (230k
+    # points: 0.09 s in 4 chunks, 0.25 s in 32, 0.18 s unthreaded)
+    nchunks = min(nchunks, len(pts) // 60_000)
+    if pool is None or nchunks < 2:
         return geo.positions_one_tilt(model, t, pts, size_rounding, local_motion=local_motion)
     parts = list(pool.map(lambda c: geo.positions_one_tilt(model, t, c, size_rounding,
                                                            local_motion=local_motion),
@@ -391,42 +396,62 @@ def reconstruct_novactf_rs(model, tilt_images, opts, progress=print):
         if wparams is not None:
             filt = filt * weight_envelope(wparams[t], sx, sy).astype(np.float32)
 
-        pad = np.zeros((Py, Px), np.float32)
-        pad[:H, :W] = scaled[t]
-        F = spfft.rfft2(pad, workers=get_threads()) * filt
-
         defs = d_c + np.arange(kmin, kmax + 1) * step_um
-        terms = ctf_phase_terms(base, sx, sy) if no.correction != "none" else None
-        planes = _defocus_planes(F.astype(np.complex64), defs, terms, no.correction,
-                                 (Py, Px), (H, W))
         info = (f"  tilt {j + 1}/{len(tilts)} ({model.angles[t]:+.1f} deg): "
                 f"{kmax - kmin + 1} defocus plane(s), "
                 f"{d_c + kmin * step_um:.3f}..{d_c + kmax * step_um:.3f} um")
-        return planes, PX, PY, KF, kmin, info
+        if gpu is not None:
+            # GPU path: only the CPU-side inputs; FFT, CTF copies and the
+            # back-projection run on the device in consume()
+            return ("gpu", (scaled[t], filt, defs, base), PX, PY, KF, kmin, info)
 
+        pad = np.zeros((Py, Px), np.float32)
+        pad[:H, :W] = scaled[t]
+        F = spfft.rfft2(pad, workers=get_threads()) * filt
+        terms = ctf_phase_terms(base, sx, sy) if no.correction != "none" else None
+        planes = _defocus_planes(F.astype(np.complex64), defs, terms, no.correction,
+                                 (Py, Px), (H, W))
+        return ("cpu", planes, PX, PY, KF, kmin, info)
+
+    gpu = None
+    if no.device != "cpu":
+        from .novactf_torch import TorchCTF3D, resolve_device
+        gpu = TorchCTF3D(resolve_device(no.device), (Vz, Vy, Vx), (Py, Px), (H, W), sx, sy)
+        progress(f"  device: {no.device}")
     bp = _bp_numba if HAVE_NUMBA else _bp_numpy
     apply_numba_threads()
-    vol = np.zeros((Vz, Vy, Vx), np.float32)
+    vol = np.zeros((Vz, Vy, Vx), np.float32) if gpu is None else None
 
-    # Pipeline: while tilt j back-projects (memory-bound gathers), tilt j+1's
-    # geometry and FFT-bound CTF copies are prepared in a second thread.
-    # Needs a numba threading layer that allows concurrent parallel regions
-    # (tbb / omp); with 'workqueue' it falls back to one tilt at a time.
-    first = prepare(0)
-    bp(vol, first[0], float(g), *first[1:5])
-    progress(first[5])
-    overlap = (not HAVE_NUMBA) or numba.threading_layer() != "workqueue"
+    def consume(item):
+        kind, payload, PX, PY, KF, kmin, info = item
+        if kind == "gpu":
+            img, filt, defs, base = payload
+            terms = gpu.phase_terms(base) if no.correction != "none" else None
+            planes = gpu.defocus_planes(img, filt, defs, terms, no.correction)
+            gpu.backproject(planes, float(g), PX, PY, KF, kmin)
+        else:
+            bp(vol, payload, float(g), PX, PY, KF, kmin)
+        progress(info)
+
+    # Pipeline: while tilt j back-projects, tilt j+1 is prepared in a second
+    # thread (CPU: geometry + FFT-bound CTF copies; GPU: geometry only). On the
+    # CPU this needs a numba threading layer that allows concurrent parallel
+    # regions (tbb / omp); with 'workqueue' it runs one tilt at a time.
+    consume(prepare(0))
+    overlap = gpu is not None or (not HAVE_NUMBA) or numba.threading_layer() != "workqueue"
     prefetch = ThreadPoolExecutor(1) if overlap and len(tilts) > 1 else None
     nxt = prefetch.submit(prepare, 1) if prefetch and len(tilts) > 1 else None
     for j in range(1, len(tilts)):
         cur = nxt.result() if nxt is not None else prepare(j)
         nxt = prefetch.submit(prepare, j + 1) if prefetch and j + 1 < len(tilts) else None
-        bp(vol, cur[0], float(g), *cur[1:5])
-        progress(cur[5])
+        consume(cur)
         del cur
     if prefetch is not None:
         prefetch.shutdown()
     if pool is not None:
         pool.shutdown()
+    if gpu is not None:
+        vol = gpu.result()
+        del gpu
     vol /= float(len(tilts))                            # novaCTF: scale = 1/nviews
     return {"reconstruction": vol}

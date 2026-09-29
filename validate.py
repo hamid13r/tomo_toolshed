@@ -228,7 +228,25 @@ def test_novactf(verbose=True):
     print(f"correlation  novactf engine : {c_id:.3f}   best axis flip {best} -> {c_best:.3f}")
     ok = err < 1e-6 and best == (1, 1, 1) and c_id > 0.55
     print("PASS (novactf geometry)" if ok else "CHECK NOVACTF ENGINE")
-    return ok
+
+    # the GPU back end must give the CPU volume (float32 rounding aside)
+    try:
+        from warp_recon.novactf_torch import HAVE_TORCH
+        import torch
+        cuda = HAVE_TORCH and torch.cuda.is_available()
+    except ImportError:
+        cuda = False
+    if not cuda:
+        print("SKIP novactf GPU test: no PyTorch with CUDA in this env")
+        return ok
+    opts.novactf.device = "cuda"
+    rec_gpu = reconstruct(copy.deepcopy(model), imgs, opts, weighting_fn=flat_ctf_weighting,
+                          progress=lambda *_: None)["reconstruction"]
+    c_gpu = _corr(rec, rec_gpu)
+    print(f"correlation  novactf GPU vs CPU: {c_gpu:.8f}")
+    ok_gpu = c_gpu > 0.9999
+    print("PASS (novactf GPU)" if ok_gpu else "CHECK NOVACTF GPU BACK END")
+    return ok and ok_gpu
 
 
 def main():
