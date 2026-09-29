@@ -33,13 +33,16 @@ The weighting and filtering are injected as callables so new versions are a
 one-line change (see weighting.py / filters.py).
 """
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import numpy as np
+import scipy.fft as spfft
 
 from .ctf import ctf_2d
 from . import geometry as geo
 from . import weighting as wmod
 from . import filters as fmod
+from .parallel import get_threads
 
 
 @dataclass
@@ -49,6 +52,8 @@ class ReconOptions:
     invert: bool = True
     normalize: bool = True
     renorm_variance: bool = False      # see filters.preprocess_tilt docstring
+    local_motion: bool = True          # bake GridMovementX/Y into the tilts (bake_local_motion)
+    highpass: bool = True              # False = no band-pass on the tilts (plain WBP-style)
     do_deconv: bool = False
     deconv_strength: float = 1.0
     deconv_falloff: float = 1.0
@@ -59,9 +64,14 @@ class ReconOptions:
     use_global_weights: bool = False
     pad_factor: float = 1.15           # in-plane padding (footprint under tilt)
     z_pad_factor: float = 1.0          # Z padding (keep ~= tomogram thickness)
-    mode: str = "global"
+    mode: str = "global"               # "global" | "etomo" | "novactf" (see reconstruct())
     ctf3d_defocus_step_nm: float = 0.0 # novaCTF-style 3D-CTF: Z-strip thickness (nm)
     ctf3d_num_strips: int = 0          # novaCTF-style 3D-CTF: Z-strip count (alternative to step)
+    # mode="etomo" only: an etomo.EtomoOptions. Untyped to keep this module
+    # free of an import back into etomo.py, which imports from here.
+    etomo: object = None
+    # mode="novactf" only: a novactf.NovaCTFOptions (untyped for the same reason)
+    novactf: object = None
 
 
 # --------------------------------------------------------------------------- #
@@ -72,10 +82,15 @@ def _even(n):
 
 
 def fourier_rescale(img, new_shape):
-    """Fourier crop/pad a 2D image to new_shape (matching Warp's scaling)."""
+    """Fourier crop/pad a 2D image to new_shape (matching Warp's scaling).
+    Uses scipy.fft (multi-threaded, --threads) instead of numpy.fft: numpy's FFT is
+    single-threaded, and this runs on the full native-resolution tilt image
+    once per tilt -- profiling showed it as the single largest cost in the
+    whole reconstruction (>50% of wall-clock on a 64-core machine using ~1
+    core). scipy.fft is API-compatible; only the extra `workers` kwarg differs."""
     if img.shape == tuple(new_shape):
         return img.astype(np.float32)
-    F = np.fft.fftshift(np.fft.fft2(img))
+    F = spfft.fftshift(spfft.fft2(img, workers=get_threads()))
     oy, ox = img.shape
     ny, nx = new_shape
     out = np.zeros((ny, nx), np.complex64)
@@ -85,7 +100,7 @@ def fourier_rescale(img, new_shape):
     hx = min(ox, nx) // 2
     out[cy1 - hy:cy1 + hy, cx1 - hx:cx1 + hx] = \
         F[cy0 - hy:cy0 + hy, cx0 - hx:cx0 + hx]
-    scaled = np.fft.ifft2(np.fft.ifftshift(out)) * (nx * ny) / (ox * oy)
+    scaled = spfft.ifft2(spfft.ifftshift(out), workers=get_threads()) * (nx * ny) / (ox * oy)
     return np.real(scaled).astype(np.float32)
 
 
@@ -104,28 +119,47 @@ def _extract_patch(img, cx, cy, size):
     dy1, dx1 = min(img.shape[0], y1), min(img.shape[1], x1)
     if dy1 > dy0 and dx1 > dx0:
         patch[sy0:sy0 + (dy1 - dy0), sx0:sx0 + (dx1 - dx0)] = img[dy0:dy1, dx0:dx1]
-    # sub-pixel shift by (rx, ry) via Fourier phase
+    # sub-pixel shift via Fourier phase. After the integer crop (cx, cy) sits
+    # at patch index (half + rx, half + ry); moving it onto `half` is a shift
+    # by (-rx, -ry), i.e. a ramp of exp(+2*pi*i*f*r). (This was exp(-...),
+    # which moved it to half + 2r instead: a per-tilt error of up to 1 px that
+    # blurred the tomogram and left ~1 voxel offsets vs Warp.)
     if abs(rx) > 1e-4 or abs(ry) > 1e-4:
         fy = np.fft.fftfreq(size)[:, None]
         fx = np.fft.fftfreq(size)[None, :]
-        ramp = np.exp(-2j * np.pi * (fx * rx + fy * ry))
-        patch = np.real(np.fft.ifft2(np.fft.fft2(patch) * ramp)).astype(np.float32)
+        ramp = np.exp(2j * np.pi * (fx * rx + fy * ry))
+        patch = np.real(spfft.ifft2(spfft.fft2(patch, workers=get_threads()) * ramp, workers=get_threads())).astype(np.float32)
     return patch
 
 
 def _centered_slice_ft(patch):
     """Math-centered 2D FT (DC at center)."""
-    return np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(patch))).astype(np.complex64)
+    return spfft.fftshift(spfft.fft2(spfft.ifftshift(patch), workers=get_threads())).astype(np.complex64)
 
 
 def _trilinear_scatter(vol, weightvol, covervol, coords, values, weights):
     """Scatter-add complex `values` and real `weights`/coverage into 3D grids
     using trilinear interpolation. coords: (M,3) float indices (x, y, z), where
-    x->axis2, y->axis1, z->axis0. Grid may be anisotropic."""
+    x->axis2, y->axis1, z->axis0. Grid may be anisotropic.
+
+    Accumulates via np.unique(..., return_inverse=True) + np.bincount rather
+    than np.add.at: add.at can't vectorize over colliding indices (it's one
+    of numpy's slowest primitives) and this is the dominant cost of every
+    reconstruction pass. bincount alone would need an output the size of the
+    *whole* volume on every call (its length is set by the largest index, not
+    by how many voxels are actually touched) -- with this called once per
+    tilt, that's a full-volume-sized allocation dozens of times over. Folding
+    duplicate indices down to the unique set actually touched first keeps the
+    temporary arrays bounded by this call's real footprint (O(len(coords)),
+    not O(vol.size)), and both steps are vectorized in C."""
     nz, ny, nx = vol.shape
     x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
     x0 = np.floor(x).astype(np.int64); y0 = np.floor(y).astype(np.int64); z0 = np.floor(z).astype(np.int64)
     fx = x - x0; fy = y - y0; fz = z - z0
+
+    idx_parts, re_parts, im_parts, w_parts, cov_parts = [], [], [], [], []
+    values_re = values.real
+    values_im = values.imag
     for dz in (0, 1):
         wz = (fz if dz else 1 - fz)
         zz = z0 + dz
@@ -137,10 +171,23 @@ def _trilinear_scatter(vol, weightvol, covervol, coords, values, weights):
                 xx = x0 + dx
                 m = (xx >= 0) & (xx < nx) & (yy >= 0) & (yy < ny) & (zz >= 0) & (zz < nz)
                 w = (wx * wy * wz)[m]
-                idx = (zz[m], yy[m], xx[m])
-                np.add.at(vol, idx, values[m] * w)
-                np.add.at(weightvol, idx, weights[m] * w)
-                np.add.at(covervol, idx, w)
+                idx_parts.append((zz[m] * ny + yy[m]) * nx + xx[m])
+                re_parts.append(values_re[m] * w)
+                im_parts.append(values_im[m] * w)
+                w_parts.append(weights[m] * w)
+                cov_parts.append(w)
+
+    flat_idx = np.concatenate(idx_parts)
+    uniq_idx, inverse = np.unique(flat_idx, return_inverse=True)
+
+    vol_flat = vol.reshape(-1)
+    weight_flat = weightvol.reshape(-1)
+    cover_flat = covervol.reshape(-1)
+
+    vol_flat.real[uniq_idx] += np.bincount(inverse, weights=np.concatenate(re_parts)).astype(vol.real.dtype)
+    vol_flat.imag[uniq_idx] += np.bincount(inverse, weights=np.concatenate(im_parts)).astype(vol.real.dtype)
+    weight_flat[uniq_idx] += np.bincount(inverse, weights=np.concatenate(w_parts)).astype(weight_flat.dtype)
+    cover_flat[uniq_idx] += np.bincount(inverse, weights=np.concatenate(cov_parts)).astype(cover_flat.dtype)
 
 
 # --------------------------------------------------------------------------- #
@@ -167,18 +214,24 @@ def _preprocess_tilts(model, tilt_images, opts: ReconOptions):
     n = model.n_tilts
     down = opts.angpix / opts.raw_angpix
 
-    scaled = []
-    for t in range(n):
+    # Warp's high-pass cutoff: 1/(SizeSub*padding/2) cycles/pixel -> Nyquist frac
+    hp_frac = 1.0 / (opts.subvolume_size * opts.subvolume_padding / 2.0) * 2.0
+
+    def one(t):
         raw = tilt_images[t].astype(np.float32)
         dsy = _even(raw.shape[0] / down)
         dsx = _even(raw.shape[1] / down)
         img = fourier_rescale(raw, (dsy, dsx))
-        # Warp's high-pass cutoff: 1/(SizeSub*padding/2) cycles/pixel -> Nyquist frac
-        hp_frac = 1.0 / (opts.subvolume_size * opts.subvolume_padding / 2.0) * 2.0
-        img = fmod.preprocess_tilt(img, opts.angpix, hp_frac,
-                                   normalize=opts.normalize, invert=opts.invert,
-                                   renorm_variance=opts.renorm_variance)
-        scaled.append(img)
+        return fmod.preprocess_tilt(img, opts.angpix, hp_frac,
+                                    normalize=opts.normalize, invert=opts.invert,
+                                    renorm_variance=opts.renorm_variance,
+                                    do_highpass=opts.highpass)
+
+    # tilts are independent and every step is FFT / numpy work that releases
+    # the GIL, so a thread pool over tilts beats one tilt at a time even though
+    # each FFT is itself multi-threaded (small per-tilt FFTs scale poorly)
+    with ThreadPoolExecutor(max_workers=max(1, min(n, 16, get_threads()))) as ex:
+        scaled = list(ex.map(one, range(n)))
 
     # size rounding factor (usually ~1) from the first tilt
     sr_x = scaled[0].shape[1] / (tilt_images[0].shape[1] / down)
@@ -193,6 +246,69 @@ def _preprocess_tilts(model, tilt_images, opts: ReconOptions):
                                        tilt_images[0].shape[0] * opts.raw_angpix],
                                       np.float32)
     return scaled, size_rounding
+
+
+def _grid_is_spatial(grid):
+    """True if a movement grid varies across the image (more than one node in
+    X or Y) -- only then is there local motion to bake in."""
+    x, y, _z = grid.dims
+    return x > 1 or y > 1
+
+
+def bake_local_motion(model, t, img, angpix, size_rounding):
+    """Resample tilt t so Warp's local-motion shift is already applied.
+
+    In GetPositionInAllTilts the local motion is a 2-D shift subtracted from
+    the *globally* projected image position T(v), looked up at T(v) itself
+    (GridMovementX/Y are indexed by normalized image position and tilt only,
+    not by depth):
+
+        xy(v) = T(v) - mv(T(v))
+
+    So the warped image I'(q) = I(q - mv(q)) satisfies I'(T(v)) = I(xy(v))
+    for every voxel v at every depth: sampling I' with the *global* alignment
+    reproduces Warp's local geometry exactly, up to one extra interpolation.
+    That is what lets engines that only take one global alignment per tilt --
+    IMOD's `tilt`, and this module's Fourier insertion, which extracts one
+    patch per tilt at the tomogram centre -- use Warp's local motion.
+    """
+    from scipy.ndimage import map_coordinates
+    H, W = img.shape
+    srx, sry = float(size_rounding[0]), float(size_rounding[1])
+    v, u = np.mgrid[0:H, 0:W].astype(np.float64)
+    qx, qy = u * angpix / srx, v * angpix / sry           # Angstrom, pre-rounding
+    gstep = 1.0 / max(model.n_tilts - 1, 1)
+    coords = np.stack([(qx / model.image_dims_A[0]).ravel(),
+                       (qy / model.image_dims_A[1]).ravel(),
+                       np.full(qx.size, t * gstep)], axis=1)
+    mvx = model.grid_movement_x.interpolate(coords).reshape(H, W)
+    mvy = model.grid_movement_y.interpolate(coords).reshape(H, W)
+    src = [v - sry * mvy / angpix, u - srx * mvx / angpix]
+    return map_coordinates(img, src, order=3, mode="constant", cval=0.0).astype(np.float32)
+
+
+def _apply_local_motion(model, scaled, size_rounding, xy_A, center, angpix,
+                        enabled, progress):
+    """Shared by the fourier and etomo engines. If the movement grids vary
+    across the image and `enabled`, bake them into the tilts and return the
+    *global* projected centre (no local shift) per tilt; otherwise return the
+    inputs unchanged, whose xy_A then carries the local shift at the centre."""
+    spatial = _grid_is_spatial(model.grid_movement_x) or _grid_is_spatial(model.grid_movement_y)
+    if not enabled:
+        progress("  local motion: OFF (only its value at the tomogram centre)")
+        return scaled, xy_A
+    if not spatial:
+        return scaled, xy_A
+    xy_A = np.array(xy_A, copy=True)
+    for t in range(model.n_tilts):
+        gx, gy, _d = geo.positions_one_tilt(model, t, center[None], size_rounding,
+                                            local_motion=False)
+        xy_A[t] = (gx[0], gy[0])
+    scaled = [bake_local_motion(model, t, scaled[t], angpix, size_rounding)
+              if bool(model.use_tilt[t]) else scaled[t] for t in range(model.n_tilts)]
+    progress(f"  local motion: baked GridMovementX/Y "
+             f"({'x'.join(map(str, model.grid_movement_x.dims))}) into the tilt images")
+    return scaled, xy_A
 
 
 def _insert_all_tilts(model, scaled, opts: ReconOptions, xy_A, defocus_um,
@@ -257,7 +373,7 @@ def _combine_volume(data_vol, weight_vol, cover_vol, opts: ReconOptions, shape):
     weight_vol = np.maximum(weight_vol, opts.weight_floor)
     recon_ft = data_vol / weight_vol
 
-    vol = np.fft.fftshift(np.real(np.fft.ifftn(np.fft.ifftshift(recon_ft)))).astype(np.float32)
+    vol = spfft.fftshift(np.real(spfft.ifftn(spfft.ifftshift(recon_ft), workers=get_threads()))).astype(np.float32)
     vol = _deapodize(vol)
     return _crop_center(vol, shape)
 
@@ -276,6 +392,8 @@ def reconstruct_global(model, tilt_images, opts: ReconOptions, progress=print):
     # tomogram center in physical Angstrom
     center = model.volume_dims_A / 2.0
     xy_A, defocus_um = geo.positions_in_all_tilts(model, center, size_rounding)
+    scaled, xy_A = _apply_local_motion(model, scaled, size_rounding, xy_A, center,
+                                       opts.angpix, opts.local_motion, progress)
 
     data_vol, weight_vol, cover_vol, params = _insert_all_tilts(
         model, scaled, opts, xy_A, defocus_um, opts._weighting_fn,
@@ -350,6 +468,8 @@ def reconstruct_novactf(model, tilt_images, opts: ReconOptions, progress=print):
 
     center = model.volume_dims_A / 2.0
     xy_A, _ = geo.positions_in_all_tilts(model, center, size_rounding)
+    scaled, xy_A = _apply_local_motion(model, scaled, size_rounding, xy_A, center,
+                                       opts.angpix, opts.local_motion, progress)
 
     strip_thickness_A = model.volume_dims_A[2] / N
     merged = np.zeros((Vz, Vy, Vx), np.float32)
@@ -406,6 +526,15 @@ def reconstruct(model, tilt_images, opts: ReconOptions,
                 weighting_fn=None, progress=print):
     """Top-level entry. weighting_fn defaults to the exact Warp weighting."""
     opts._weighting_fn = weighting_fn or wmod.warp_weighting
+    if opts.mode == "etomo":
+        # real-space weighted back-projection / SIRT via IMOD's `tilt`, driven
+        # by Warp's alignment. Lazy import: etomo.py imports from this module.
+        from .etomo import reconstruct_etomo
+        return reconstruct_etomo(model, tilt_images, opts, progress=progress)
+    if opts.mode == "novactf":
+        # real-space 3D-CTF back-projection on Warp's per-voxel geometry
+        from .novactf import reconstruct_novactf_rs
+        return reconstruct_novactf_rs(model, tilt_images, opts, progress=progress)
     if opts.mode == "global":
         if opts.ctf3d_defocus_step_nm or opts.ctf3d_num_strips:
             return reconstruct_novactf(model, tilt_images, opts, progress=progress)

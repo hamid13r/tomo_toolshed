@@ -25,5 +25,7 @@ venv/
 # reconstruction outputs and scratch
 reconstruction*/
 recon_mine*/
+recon_etomo*/
+etomo_*/
 _selftest/
 VALIDATION.md

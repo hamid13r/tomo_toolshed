@@ -89,20 +89,29 @@ def ctf_2d(params: CTFParams, sx: np.ndarray, sy: np.ndarray,
     ctf = params.amplitude * np.cos(argument) - K3 * np.sin(argument)
 
     if weighted:
-        if do_bfactor:
-            if params.dose_model == "motioncor3":
-                env = motioncor3_dose_envelope(s2, params.dose_ea2, params.voltage)
-            else:
-                env = np.exp(K4 * s2)
-                if params.bfactor_delta != 0.0:
-                    phi = np.arctan2(sy, sx)
-                    bangle = np.deg2rad(params.bfactor_angle)
-                    bdelta = params.bfactor_delta * 0.25
-                    env = env * np.exp(bdelta * s2 * np.cos(2.0 * (phi - bangle)))
-            ctf = ctf * env
-        ctf = ctf * params.scale
+        ctf = ctf * weight_envelope(params, sx, sy, do_bfactor=do_bfactor)
 
     return ctf.astype(np.float32)
+
+
+def weight_envelope(params: CTFParams, sx: np.ndarray, sy: np.ndarray,
+                    do_bfactor: bool = True) -> np.ndarray:
+    """The "weighted" part of ctf_2d on its own: Scale times the dose exposure
+    filter (B-factor envelope, or the MotionCor3 critical-exposure curve).
+    ctf_2d(weighted=True) == ctf_2d(weighted=False) * weight_envelope."""
+    s2 = sx * sx + sy * sy
+    env = np.ones_like(s2)
+    if do_bfactor:
+        if params.dose_model == "motioncor3":
+            env = motioncor3_dose_envelope(s2, params.dose_ea2, params.voltage)
+        else:
+            env = np.exp(params.bfactor * 0.25 * s2)
+            if params.bfactor_delta != 0.0:
+                phi = np.arctan2(sy, sx)
+                bangle = np.deg2rad(params.bfactor_angle)
+                bdelta = params.bfactor_delta * 0.25
+                env = env * np.exp(bdelta * s2 * np.cos(2.0 * (phi - bangle)))
+    return env * params.scale
 
 
 def _motioncor3_kv_factor(voltage_kv: float) -> float:

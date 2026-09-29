@@ -164,13 +164,27 @@ def fourier_shell_correlation(vol1: np.ndarray, vol2: np.ndarray, angpix: float,
 
 
 def _crossing_resolution(freqs, fsc, threshold):
+    # Skip the DC/first shell. It contains a single Fourier component (the
+    # volume mean), so its "correlation" is exactly +-1 and depends only on the
+    # relative sign of the two volumes -- a -1 there made the `idx == 0` guard
+    # below report "no crossing" for every sign-flipped volume, even when the
+    # rest of the curve was excellent. Crossings are never quoted off the DC
+    # shell anyway.
+    freqs = np.asarray(freqs)[1:]
+    fsc = np.asarray(fsc)[1:]
     below = fsc < threshold
     if not below.any() or not (~below).any():
         return None
-    # first index where the curve drops below threshold after having been above it
-    idx = np.argmax(below)
-    if idx == 0:
+    # first index where the curve drops below threshold after having been above
+    # it. The lowest shells can sit below threshold too (per-tilt high-pass
+    # differences between engines), so the search starts at the first shell
+    # that is above it -- not at shell 0, which reported "no crossing" for
+    # curves that plainly cross (e.g. 0.95 plateau -> 0.5 at 31 A).
+    first_above = int(np.argmax(~below))
+    rest = below[first_above:]
+    if not rest.any():
         return None
+    idx = first_above + int(np.argmax(rest))
     f0, f1 = freqs[idx - 1], freqs[idx]
     c0, c1 = fsc[idx - 1], fsc[idx]
     if c1 == c0:

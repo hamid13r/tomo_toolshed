@@ -175,6 +175,318 @@ filter). Edit or replace and pass your versions into `reconstruct()`.
 Because weighting and filtering are the only things that change between versions,
 you can loop over parameter sets and write one tomogram per setting.
 
+## Second engine: IMOD/etomo back-projection (`--engine etomo`)
+
+Everything above reconstructs by CTF-weighted Fourier-slice insertion, which is
+what Warp does. `--engine etomo` instead hands the tilt series to IMOD's `tilt`,
+which is a genuinely different algorithm: real-space weighted back-projection
+with a 1-D radial filter per projection line. The alignment and the per-tilt
+preprocessing are shared with the Fourier engine, so the back-projection is the
+only thing that changes.
+
+```bash
+# weighted back-projection (IMOD's own RADIAL 0.35 0.035)
+python reconstruct_tomo.py ... --engine etomo --etomo_recon wbp
+
+# the SIRT-like filter (tilt -FakeSIRTiterations): a radial filter analytically
+# equivalent to N SIRT iterations, at WBP cost
+python reconstruct_tomo.py ... --engine etomo --etomo_recon fakesirt --etomo_sirt_iters 10
+
+# true iterative SIRT (tilt -SIRTIterations)
+python reconstruct_tomo.py ... --engine etomo --etomo_recon sirt --etomo_sirt_iters 10
+
+# any of the above, plus the cos(tilt) per-view amplitude weighting the
+# fourier engine applies (fed to tilt through its -WeightFile)
+python reconstruct_tomo.py ... --engine etomo --etomo_recon wbp --etomo_view_weight warp
+```
+
+The IMOD project (stack, `.xf`, `.tlt`, `newst.com`, `tilt.com`, the aligned
+stack and `tilt`'s raw output) is left in `<output>/etomo/`, so a run can be
+inspected, edited and re-run by hand with `submfg tilt.com` or opened in etomo.
+
+### The geometry comes from Warp
+
+`geometry.tilt_matrix` builds, per tilt *t*,
+
+    R_t = Euler(0, angle_t + LevelAngleY, -AxisAngle_t) @ RotateX(LevelAngleX)
+
+and since `euler(0, b, g) == RotZ(-g) @ RotY(-b)`, that is exactly
+
+    R_t = RotZ(AxisAngle_t) @ RotY(-(angle_t + LevelAngleY)) @ RotX(LevelAngleX)
+
+IMOD splits the same geometry differently: the in-plane rotation is baked into
+the *aligned stack* by `newstack`, and `tilt` then tilts about the (now
+vertical) Y axis. So peeling the leading `RotZ` off into a `.xf` leaves
+precisely IMOD's model:
+
+| IMOD | from Warp |
+|---|---|
+| `.xf` 2x2 | `RotZ2D(-AxisAngle_t)` |
+| `.xf` shift | `-RotZ2D(-AxisAngle_t) @ (projected tomogram centre - image centre)` |
+| `.tlt` | `angle_t + LevelAngleY` |
+| `XAXISTILT` | `LevelAngleX` |
+
+This is checked, not assumed. Warp's alignment for this project was *imported
+from* etomo (`warp_tiltseries/tiltstack/<series>/`), so the conversion can be
+diffed against IMOD's own files. For `VLP3x3_p03_ts_002`:
+
+- **`.xf` 2x2** — generated `0.1643666 0.9863993 -0.9863993 0.1643666` vs IMOD's
+  own `0.1643666 0.9863998 -0.9863998 0.1643666`: identical to 6 decimals.
+- **`.xf` shift** — ours is written at 21.16 A/px, IMOD's at 6.348 A/px, so the
+  ratio should be 3.333: `(-1.853, -7.892) * 3.333 = (-6.177, -26.307)` vs
+  IMOD's `(-6.169, -26.272)`; likewise tilts 2-4, all within ~0.5%.
+- **`.tlt`** — ours is IMOD's minus 3.62 deg on every tilt, i.e. exactly
+  `LevelAngleY = -3.6172`, as intended.
+
+The shift is derived from `geometry.positions_in_all_tilts` rather than from
+`AxisOffsetX/Y` directly, which is strictly more complete: it also picks up the
+volume-warp and local-motion grids, and it puts the tomogram centre at the
+aligned-stack centre exactly where `_insert_all_tilts` puts it via
+`_extract_patch`.
+
+`XAXISTILT` is the one piece whose *sign* convention is IMOD's rather than
+derivable, so it is exposed as `--etomo_xaxistilt_sign` and settled empirically:
+in `validate.test_etomo` the two signs are identical at `LevelAngleX = 0` and
+`+1` wins by a margin that grows monotonically with `|LevelAngleX|` (0.0000 at
+0 deg, 0.0655 at 6 deg, 0.1905 at 12 deg). `+1` is the default.
+
+### What "weighted" means in WBP -- it is not cos(tilt)
+
+Worth being precise, because it is a real asymmetry between the two engines.
+`tilt`'s back-projection is "weighted" in two senses, **neither of which is
+cos(tilt)**:
+
+- the **radial R-weighting** ramp filter applied per projection line in
+  frequency space (`RADIAL cutoff falloff`, `--etomo_radial`), and
+- **`-DENSWEIGHT`** (on by default, 2 intervals each side), a per-view weight
+  proportional to the *local average tilt increment* between views. On this
+  series the increments span 2.88-3.05 deg (5.7%), so it is very nearly uniform.
+
+`-COSINTERP` is unrelated despite the name: it is cosine *stretching*, a
+back-projection speed optimization that pre-stretches each input line by
+1/cos(tilt) so it lands in register with the output planes. It is disabled on the
+GPU and is not a weighting.
+
+The Fourier engine, by contrast, does apply `Scale = cos(tilt)` per tilt
+(`weighting.warp_weighting`, from Warp's `GetCTFsForOneParticle`) -- on this
+series the +-59 deg views enter at 51% of the flattest view's amplitude.
+`--etomo_view_weight warp` closes that gap by feeding the active weighting
+scheme's per-tilt amplitude scale to `tilt` through its `-WeightFile`. Only the
+*scalar* per-view factor can travel that way: the dose exposure filter is a
+frequency-dependent B-factor envelope, which has no one-number-per-view
+representation and is therefore not transferred.
+
+### Local motion (Warp's `GridMovementX/Y`), and two conversion fixes
+
+`tilt` only takes a global alignment, but Warp's local motion is a per-tilt
+2-D shift looked up at a point's *globally projected image position*, not at
+its depth. So it is exactly a per-tilt image warp: `reconstruct.bake_local_motion`
+resamples each tilt so that `I'(q) = I(q - mv(q))`, and sampling `I'` with the
+global alignment then gives Warp's local geometry at every depth. It is on by
+default whenever the grids vary across the image (`--etomo_no_local_motion`
+turns it off). The `.xf` then carries the global alignment only, so the
+centre's local shift is not applied twice. Cost: one extra interpolation.
+
+Getting this to match Warp also needed two fixes to the global conversion.
+Both were invisible on `VLP3x3_p03_ts_002` (square tilts, ~80 deg axis):
+
+- **Aligned-stack size.** newstack wrote the aligned stack at the raw tilt size.
+  With a tilt axis near +-90 deg (HRR021_2: -94.5 deg, 720x512 tilts), the
+  720-px tomogram length ends up vertical, and the volume was cut to 104 of 720
+  rows. `etomo.aligned_stack_size` now uses the rotated tilt's bounding box.
+- **Half-pixel centres.** Warp centres an N-pixel axis at index N/2; IMOD's
+  `.xf` and `tilt` use (N-1)/2. The `.xf` now rotates about the IMOD centre
+  and sends the tomogram centre to aligned index N/2. The old version was off
+  by an axis-angle-dependent ~1 voxel (1.04 in X on HRR021_2), which on its
+  own halves the FSC against Warp from ~60 A on.
+
+HRR021_2_S02_L02_ts_003, 13.28 A/px, WBP, against Warp's reconstruction of
+the current `.xml`:
+
+| variant | Pearson (central 80%) | FSC 0.5 |
+|---|---|---|
+| before the fixes, local motion off | 0.085 | 98 A |
+| local motion off | 0.225 | 79 A |
+| local motion baked in | **0.681** | **30.3 A** |
+| `--engine novactf --novactf_correction none` (same geometry, no CTF) | 0.707 | 30.1 A |
+
+Block-wise sub-voxel shifts between the etomo and novactf volumes are now
+<= 0.18 voxel everywhere. The `VLP3x3_p03_ts_002` numbers above were measured
+before the half-pixel fix and have not been re-run since.
+
+### What `tilt` still does not do
+
+`tilt` has no notion of a CTF. Unlike the Fourier engine, the etomo path applies
+**no phase flip, no |CTF| weighting and no dose B-factor**. `--deconv`,
+`--dose_bfactor_scale` and the `--ctf3d_*` options are therefore ignored with
+`--engine etomo`, as is the B-factor half of `--dose_weighting` (the CLI says so
+rather than dropping them silently). That is a real difference between these
+entries and the rest of the list, not an oversight. What *is* shared is
+`reconstruct._preprocess_tilts`, so the tilt data going in is bit-identical to
+what the Fourier engine inserts.
+
+Also note `tilt`'s output densities are on its own scale (no `SCALE` is applied,
+to keep them linear): the WBP volume has std ~4.0 where Warp's reference has
+0.0133. FSC and Pearson are scale-invariant, so this affects only display
+contrast.
+
+### Validated against the Warp reference
+
+`VLP3x3_p03_ts_002`, 21.16 A/px, 584x584x120, vs
+`warp_tiltseries/reconstruction/..._21.16Apx.mrc`:
+
+| variant | specimen-band Pearson | FSC 0.5 | FSC 0.143 | wall clock |
+|---|---|---|---|---|
+| `fourier` (this repo's engine, current default) | 0.080 | 165 A | 111 A | ~5 min |
+| `etomo --etomo_recon wbp` | **0.480** | **71.3 A** | **45.4 A** | 58 s |
+| `etomo --etomo_recon wbp --etomo_view_weight warp` | **0.486** | **68.5 A** | **45.2 A** | 58 s |
+| `etomo --etomo_recon fakesirt` (10) | **0.646** | **66.8 A** | **45.4 A** | 24 s |
+| `etomo --etomo_recon fakesirt --etomo_view_weight warp` (10) | **0.654** | **65.5 A** | **45.3 A** | 24 s |
+| `etomo --etomo_recon sirt` (10) | **0.604** | (see below) | **44.5 A** | ~2 min |
+
+Adding the cos(tilt) per-view weighting is a small but perfectly consistent
+improvement -- all three Pearson measures and both FSC crossings move the right
+way, for both `wbp` and `fakesirt`. The magnitude is modest because cos(tilt) is
+a smooth monotonic per-view amplitude taper and the FSC is normalized per shell.
+
+All three agree with Warp's own `ts_reconstruct` output *substantially better
+than this repo's Fourier engine does* -- 6-8x the real-space correlation, and an
+FSC 0.143 crossing at 45 A against the Fourier engine's 111 A. The likely reason
+is the `mode="global"` approximation documented above: Warp really reconstructs
+per padded sub-volume, and a real-space back-projection off the same alignment
+apparently lands closer to that than one Fourier-cropped patch per tilt does.
+That makes these useful as a cross-check on the Fourier engine, not just as
+extra entries in the list.
+
+True SIRT's 0.5 crossing is not meaningful: one very-low-frequency shell (2746
+A, few voxels, statistically unstable) dips to 0.303 and drags the *first*
+downward crossing out to ~2977 A, while the neighbouring shells sit at 0.87 and
+0.76. Its 0.143 crossing (44.5 A) is the number to read.
+
+Fixing one reporting bug was needed to see any of this. `compare._crossing_resolution`
+searched for the first shell below the threshold starting at the DC shell -- but
+the DC shell holds a single Fourier component (the volume mean), so its
+"correlation" is exactly +-1 depending only on the relative sign of the two
+volumes. Every sign-flipped volume therefore reported *no crossing at all*, which
+looks exactly like a collapsed FSC. The DC shell is now skipped; the previously
+reported `fourier` numbers (165 A / 111 A) are unchanged by it.
+
+## Third engine: real-space novaCTF on Warp's geometry (`--engine novactf`)
+
+novaCTF's 3D-CTF weighted back-projection (Turoňová et al. 2017), with every
+voxel projected through Warp's *full* geometry -- including the
+`GridMovementX/Y` local-motion grids, which neither the novaCTF binary (global
+`.xf`/`.tlt` only, and it forces `XAXISTILT` to 0) nor IMOD `tilt` can use.
+For each tilt, the image is CTF-corrected at defocus steps of `--novactf_step`
+nm; each voxel then takes the copy whose defocus matches *its own depth along
+that tilt's beam* (novaCTF's `generateFocusGrid` / `computeOneRow`), at the
+image position `geometry.positions_one_tilt` gives it. See
+`warp_recon/novactf.py` for the full list of differences from the binary.
+
+```bash
+# novaCTF defaults: multiplication, 10 nm steps, RADIAL 0.3 0.05, local motion on
+python reconstruct_tomo.py ... --engine novactf
+# ablations
+python reconstruct_tomo.py ... --engine novactf --novactf_no_local_motion   # global alignment only
+python reconstruct_tomo.py ... --engine novactf --novactf_step 0            # 2-D CTF (one defocus/tilt)
+python reconstruct_tomo.py ... --engine novactf --novactf_correction phaseflip
+python reconstruct_tomo.py ... --engine novactf --novactf_weighting warp    # + cos(tilt) & dose filter
+```
+
+Needs `numba` for speed; falls back to a much slower numpy path without it.
+On 64 cores, HRR021_2_S02_L02_ts_003 end to end (load, reconstruct, write):
+~13 s at 13.28 A/px (512x720x300) and ~36 s at 6.64 A/px (1024x1440x600,
+~11 GB RAM), down from 65 s / 240 s before parallelizing. Output is unchanged
+(correlation 1.0 with the earlier volumes, max diff ~3e-7). What is parallel:
+the CTF of every defocus copy (fused numba kernel; the defocus-independent
+phase terms once per tilt), batched multi-threaded inverse FFTs, threaded
+geometry and tilt preprocessing, the numba back-projection, and preparation
+of tilt j+1 overlapping the back-projection of tilt j. The back-projection
+(memory-bound plane gathers) is ~half of what is left.
+
+`--threads N` sets the thread count for all engines (FFTs, numba kernels,
+thread pools, and IMOD `tilt` via OMP_NUM_THREADS; `warp_recon.set_threads`
+from Python). The default is the CPUs the process may run on
+(`os.sched_getaffinity`), so under SLURM or `taskset` it uses the allocation,
+not every core of the node. Because tilt j+1 is prepared while tilt j
+back-projects, usage can briefly exceed N (measured: 851% average CPU at
+`--threads 8`).
+
+### Validated against Warp (HRR021_2_S02_L02_ts_003, 13.28 A/px)
+
+Reference: `WarpTools ts_reconstruct --dont_invert` run on the *current*
+`.xml` (2026-09-29). The reference in `warp_tiltseries/reconstruction/`
+(2026-05-15) predates the local-motion grids that were later written into the
+`.xml` (by the `miss-alignment` refinement; see `*_alignment_loss.json`), and
+agrees with the current `.xml`'s own Warp reconstruction at only r = 0.08 --
+compare against a freshly regenerated reference, not that one.
+
+| variant | Pearson (central 80%) | FSC 0.5 | FSC 0.143 |
+|---|---|---|---|
+| old (May) Warp reference | 0.083 | 145 A | 88 A |
+| `--novactf_no_local_motion` | 0.108 | 90 A | 51 A |
+| default (multiplication, 3-D CTF) | 0.673 | 31.1 A | 26.6 A (Nyquist) |
+| `--novactf_step 0` (2-D CTF) | -- | 31.1 A | 29.5 A |
+| `--novactf_weighting warp` | 0.686 | 31.2 A | 26.6 A (Nyquist) |
+| `--novactf_correction none` | 0.707 | 30.1 A | 29.3 A |
+
+The local-motion grids shift content by up to ~15 px here and dominate every
+other difference. Their sign is also checked without any reference: an
+even/odd-tilt half-set FSC is highest with the grids applied, lower without
+them and lowest with them negated (200-100 A band: 0.260 / 0.256 / 0.247).
+At this pixel size and 4.2 um defocus, Nyquist (26.6 A) sits just past the
+first CTF zero (~29 A), so the CTF variants can only differ in the last few
+shells; 3-D vs 2-D CTF needs a finer pixel size to show.
+
+### 3-D vs 2-D CTF (same series, 6.64 A/px, Nyquist 13.3 A)
+
+Against Warp's own 6.64 A/px reconstruction of the current `.xml`:
+
+| variant | Pearson (central 80%) | FSC 0.5 |
+|---|---|---|
+| multiplication, `--novactf_step 0` (2-D) | 0.593 | 29.5 A |
+| multiplication, 10 nm steps (3-D, default) | 0.598 | 17.2 A |
+| phaseflip, `--novactf_step 0` (2-D) | 0.608 | 29.4 A |
+| phaseflip, 10 nm steps (3-D) | **0.635** | **16.8 A** |
+
+With one defocus per tilt, the FSC drops deeply at every CTF zero (~29,
+20.5, 16.6, 14.5 A): the zeros sit in the wrong place for every voxel away
+from the tomogram's central depth. The 3-D variants fill those dips, and
+phaseflip + 3-D almost removes them, tracking Warp (which re-evaluates the
+CTF per sub-volume) out to Nyquist. Phaseflip matches Warp better than
+multiplication because Warp itself phase-flips. The 0.143 crossings are not
+quoted: only the shells at DC fall below 0.143. An even/odd-tilt half-set
+FSC cannot separate 2-D from 3-D here: both halves are pure noise past ~60 A.
+Runtime at the time: ~4 min (3-D) / ~1.5 min (2-D); now ~36 s for 3-D (see above).
+
+## Reproducing WarpTools itself (the default `fourier` engine), 2026-09-29
+
+Two changes make the default engine track `ts_reconstruct` closely:
+
+- **Sub-pixel patch shift sign fix** (`reconstruct._extract_patch`). After the
+  integer crop, a tilt's projected centre sits at patch index `half + r`; the
+  phase ramp moved it to `half + 2r` instead of `half`. Every tilt was
+  therefore off-centre by its own fractional position (0-1 px): the tomogram
+  was blurred and ~1 voxel off. This bug, not the `global`-vs-sub-volume
+  architecture, is the most likely cause of the old gap between this engine
+  and the etomo engine / Warp on `VLP3x3_p03_ts_002` (0.080 vs 0.48). Those
+  numbers, and the 2026-08-28 conclusions drawn from them
+  (`summary_0828.md`), predate the fix and should be re-run.
+- **Local motion**, baked into the tilts exactly as for the etomo engine
+  (`reconstruct.bake_local_motion`; `--no_local_motion` disables it).
+
+HRR021_2_S02_L02_ts_003, 13.28 A/px, `--dont_invert`, against `ts_reconstruct`
+on the current `.xml`:
+
+| variant | Pearson (central 80%) | FSC 0.5 | FSC 0.143 |
+|---|---|---|---|
+| before the fix, local motion on | 0.148 | 85 A | 55 A |
+| **fixed, local motion on (default)** | **0.817** | **29.6 A** | **26.6 A (Nyquist)** |
+| fixed, `--no_local_motion` | 0.232 | 80 A | 46 A |
+
+Block-wise sub-voxel offsets to Warp's volume: <= 0.1 voxel. The phantom
+self-test for this engine rose from 0.874 to 0.907.
+
 ## Validating against Warp
 
 Two levels of validation ship with the code:
@@ -182,7 +494,14 @@ Two levels of validation ship with the code:
 1. **Self-consistency** (no data needed): `python validate.py` builds a phantom,
    forward-projects it through the exact Warp geometry, reconstructs, and reports
    the correlation (≈0.9; limited only by the missing wedge). This checks the
-   geometry sign conventions and the insertion/weighting normalization.
+   geometry sign conventions and the insertion/weighting normalization. It then
+   runs the same phantom through `--engine etomo` (`validate.test_etomo`), which
+   is the end-to-end certificate for the Warp→IMOD conversion: the `.xf` /
+   `.tlt` / `XAXISTILT` are consumed by the real `newstack` and `tilt` binaries,
+   the model deliberately carries a non-zero `LevelAngleX/Y`, per-tilt tilt-axis
+   jitter and per-tilt axis offsets, and all 8 axis flips are searched so the
+   output handedness is pinned rather than assumed (0.84 etomo vs 0.87 Fourier
+   on the same phantom). Skipped with a message if IMOD is not installed.
 2. **Against `ts_reconstruct`** (needs your data): run WarpTools
    `ts_reconstruct --angpix 10` on this tilt series, then reconstruct the same
    series here at the same `--angpix`, and compare (FSC / real-space correlation,
@@ -200,6 +519,8 @@ warp_recon/
   weighting.py   per-tilt weighted-CTF model      <-- edit for new WEIGHTING
   filters.py     preprocessing + deconvolution    <-- edit for new FILTERING
   reconstruct.py Fourier-slice reconstruction engine
+  etomo.py       IMOD `tilt` back-projection engine (WBP / SIRT-filter / SIRT)
+  novactf.py     real-space novaCTF 3D-CTF engine on Warp's per-voxel geometry
   mrc_io.py      MRC/PNG read/write
 reconstruct_tomo.py   command-line front-end (mirrors ts_reconstruct)
 validate.py           synthetic self-consistency test
