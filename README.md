@@ -41,6 +41,7 @@ pip install -e .
 | `tomo_toolshed duplicate-remover` | Remove particles closer than a distance threshold within each tomogram/micrograph, across RELION 3/4/5 and M/WarpTools star flavors (resolves the coordinate pixel size per flavor). | [docs/duplicate_remover.md](docs/duplicate_remover.md) |
 | `tomo_toolshed split-star` | Split a particle star file into one star file per tomogram/micrograph/source, flat by default or one subdirectory per group with `--dir-per-group` (carries through optics/general blocks). | [docs/split_star.md](docs/split_star.md) |
 | `tomo_toolshed scale-star` | Rescale particle coordinates between pixel sizes (with optional shift), rewriting the coordinate pixel-size columns, across RELION 3/4/5 and M/WarpTools star flavors (leaves `rlnImagePixelSize` and `*Angst` columns alone). | [docs/scale_star.md](docs/scale_star.md) |
+| `tomo_toolshed filament-cleanup` | After RELION helical refinement, remove particles that sit off a smooth curve through their filament or whose tilt/psi axis disagrees with their neighbours; writes the cleaned star file plus a star file of the removed particles for inspection. | [docs/filament_cleanup.md](docs/filament_cleanup.md) |
 
 ## Development
 

@@ -18,6 +18,7 @@ from .write_ebt.cli import write_ebt
 from .duplicate_remover.cli import duplicate_remover
 from .split_star.cli import split_star
 from .scale_star.cli import scale_star
+from .filament_cleanup.cli import filament_cleanup
 
 
 # Declare the group name explicitly with underscores so click does not rewrite
@@ -37,6 +38,7 @@ def tomo_toolshed():
     duplicate-remover  Remove particles closer than a distance threshold per group.
     split-star         Split a star file into one star file per group.
     scale-star         Rescale star-file coordinates between pixel sizes.
+    filament-cleanup   Remove off-helix particles after helical refinement.
     """
 
 
@@ -49,6 +51,7 @@ tomo_toolshed.add_command(write_ebt, name="write-ebt")
 tomo_toolshed.add_command(duplicate_remover, name="duplicate-remover")
 tomo_toolshed.add_command(split_star, name="split-star")
 tomo_toolshed.add_command(scale_star, name="scale-star")
+tomo_toolshed.add_command(filament_cleanup, name="filament-cleanup")
 
 # Also accept the underscored spellings. Each is a hidden copy so it stays out of
 # the --help index while keeping the underscored command working as typed.
@@ -67,6 +70,10 @@ tomo_toolshed.add_command(_split_star_alias, name="split_star")
 _scale_star_alias = copy.copy(scale_star)
 _scale_star_alias.hidden = True
 tomo_toolshed.add_command(_scale_star_alias, name="scale_star")
+
+_filament_cleanup_alias = copy.copy(filament_cleanup)
+_filament_cleanup_alias.hidden = True
+tomo_toolshed.add_command(_filament_cleanup_alias, name="filament_cleanup")
 
 
 if __name__ == "__main__":
