@@ -82,6 +82,18 @@ _xml_reconstruct_alias = copy.copy(xml_reconstruct)
 _xml_reconstruct_alias.hidden = True
 tomo_toolshed.add_command(_xml_reconstruct_alias, name="xml_reconstruct")
 
+_add_defocus_alias = copy.copy(add_defocus)
+_add_defocus_alias.hidden = True
+tomo_toolshed.add_command(_add_defocus_alias, name="add_defocus")
+
+_skipped_views_alias = copy.copy(skipped_views)
+_skipped_views_alias.hidden = True
+tomo_toolshed.add_command(_skipped_views_alias, name="skipped_views")
+
+_trace_filaments_alias = copy.copy(trace_filaments)
+_trace_filaments_alias.hidden = True
+tomo_toolshed.add_command(_trace_filaments_alias, name="trace_filaments")
+
 
 if __name__ == "__main__":
     tomo_toolshed()

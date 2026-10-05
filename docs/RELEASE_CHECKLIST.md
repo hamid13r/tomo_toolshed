@@ -77,12 +77,10 @@ Audit date: 2026-10-05. Nothing here has been released.
 
 - **done** *(checked)* — `--help` smoke test passes for every subcommand.
 - **done** *(checked 214 passed)* — Full `pytest` suite green in a fresh venv.
-- **decide / todo** — **Dash/underscore option-spelling and command-alias
-  consistency.** Hidden underscore command aliases exist for `duplicate_remover`,
-  `filament_cleanup`, `scale_star`, `split_star`, `write_ebt`, `xml_reconstruct`,
-  but the hyphenated commands **`add-defocus`, `skipped-views`, `trace-filaments`
-  have no underscore alias**. Decide whether to add aliases for those three for
-  consistency.
+- **done** *(checked)* — **Command-alias consistency.** Every hyphenated command
+  now has a hidden underscore alias; `add_defocus`, `skipped_views`, and
+  `trace_filaments` aliases were added (they were the only ones missing). Verified
+  all three run and none leak into `--help`.
 - **todo** — Audit error handling for consistency: confirm each tool raises
   `click.ClickException` / `click.UsageError` for user errors rather than bare
   tracebacks (newer tools do; older ones should be spot-checked).
@@ -91,8 +89,9 @@ Audit date: 2026-10-05. Nothing here has been released.
 
 - **done** — `CHANGELOG.md` added (Keep a Changelog style) with the `0.1.0` entry
   listing all 11 tools.
-- **decide** — `CITATION.cff` and/or a Zenodo DOI for citeability. Recommended for
-  a scientific tool; needs your ORCID / preferred citation.
+- **done** — `CITATION.cff` added (with author ORCID), so GitHub renders a
+  "Cite this repository" button with APA/BibTeX. A Zenodo DOI can be added later
+  (commented `identifiers:` stub is in place) once a release is archived.
 - **done** — The stray `PROMPT_*.md` files are now git-ignored and untracked
   (removed from tracking in `69400a7`).
 - **done** *(checked)* — **Distribution size is already clean.** The sdist is
@@ -134,5 +133,5 @@ Audit date: 2026-10-05. Nothing here has been released.
 **All code/metadata blockers are cleared.** The remaining gate is **maintainer-only,
 web-UI setup** that cannot be scripted: register the PyPI/TestPyPI **trusted
 publishers** and create the `pypi`/`testpypi` GitHub environments, then tag `v0.1.0`.
-Optional *decide* items: `CITATION.cff`/Zenodo, command-alias consistency for
-`add-defocus`/`skipped-views`/`trace-filaments`, and the git-history fixture size.
+Remaining *decide* items: a Zenodo DOI (after the first release) and the
+git-history fixture size.

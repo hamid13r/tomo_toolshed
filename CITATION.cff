@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: tomo-toolshed
+abstract: >-
+  A collection of lightweight cryo-ET file/CLI tools, all under a single
+  tomo_toolshed command.
+type: software
+authors:
+  - family-names: Rahmani
+    given-names: Hamid
+    email: hrahmani@scripps.edu
+    orcid: "https://orcid.org/0000-0003-0222-6989"
+version: 0.1.0
+date-released: "2026-10-05"
+license: MIT
+repository-code: "https://github.com/hamid13r/tomo_toolshed"
+url: "https://github.com/hamid13r/tomo_toolshed"
+# After archiving a release to Zenodo, add the DOI here so it becomes the
+# preferred, version-pinned citation:
+# identifiers:
+#   - type: doi
+#     value: "10.5281/zenodo.XXXXXXX"
+#     description: "Archived release on Zenodo"
+keywords:
+  - cryo-et
+  - tomography
+  - warp
+  - WarpTools
+  - etomo
+  - segmentation
+  - curation
