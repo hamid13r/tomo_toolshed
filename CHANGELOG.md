@@ -14,7 +14,10 @@ First release: a collection of lightweight cryo-ET file/CLI tools under a single
 ### Added
 
 - **skipped-views** — prune skipped etomo views from WarpTools tilt-series XML by
-  updating `UseTilt` from `taSolution.log`, with optional dose/tilt selection.
+  updating `UseTilt` from `taSolution.log`, with optional dose/tilt selection, or
+  (with `--delete`) physically remove the excluded tilts from the XML and the
+  matching `.tomostar`. Warp 2 XML round-trips byte-for-byte; includes a
+  `--dry-run` preview and a test suite.
 - **curate** — interactive GUI to review and clean a 3D segmentation over a
   tomogram and export a curated mask, or load particle picks (star / `.txt` /
   `.box`) and export a star file with false positives removed.

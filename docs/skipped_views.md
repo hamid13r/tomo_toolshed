@@ -27,12 +27,13 @@ By turning the UseTilt to False for that view, the shadow goes away:
 
 ## Features
 
-- **Automatic backup creation** - Safely backs up original XML files before modification, the backup directory needs to be new to avoid overriding original backups
+- **Automatic backup creation** - Backs up original files before modification; existing backups are never overwritten (a numbered `.bak.1`, `.bak.2`, … is used)
 - **etomo-based filtering** - Uses `taSolution.log` files to determine which views to keep
 - **Dose-based selection** - Option to keep only the N lowest-dose views
 - **Tilt-based selection** - Option to keep only until a certain amount of tilt from the first view
+- **Delete mode** - Optionally remove excluded tilts outright from the XML and `.tomostar` (`--delete`), with a `--dry-run` preview
 - **Batch processing** - Process multiple XML files with customizable patterns
-- **Safety first** - Never overwrites existing backups
+- **Byte-exact XML** - Warp 2 XML round-trips unchanged (BOM/declaration/spacing preserved); edits are written atomically
 
 ## Installation
 
@@ -60,6 +61,11 @@ tomo_toolshed skipped-views --xml-dir ./ --xml-pattern "*.xml" --backup-dir back
 
 # Keep only 20 lowest-dose tilts
 tomo_toolshed skipped-views --xml-dir ./ --xml-pattern "*.xml" --backup-dir backup_xml --n-tilts 20
+
+# Delete mode: physically remove the excluded tilts from the XML *and* the
+# matching .tomostar (preview first with --dry-run)
+tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir tiltstack --delete --tomostar-dir ../tomostar --dry-run
+tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir tiltstack --delete --tomostar-dir ../tomostar
 ```
 
 ### Command Line Options
@@ -70,9 +76,20 @@ tomo_toolshed skipped-views --xml-dir ./ --xml-pattern "*.xml" --backup-dir back
 | `--xml-pattern` | `*.xml` | Glob pattern to match XML files |
 | `--backup-dir` | `backup_xml` | Directory to store XML backups |
 | `--tiltstack-dir` | `tiltstack` | Base directory containing tiltstack logs |
+| `--tomostar-dir` | `../tomostar` | Directory containing `.tomostar` files (delete mode) |
 | `--all-true` | False | Set all UseTilt values to True (ignores log files) |
 | `--n-tilts` | 0 | Keep N lowest-dose views, set others to False |
 | `--max-tilt` | 0 | Keep views up to this tilt from the lowest tilt |
+| `--delete` | False | Physically remove excluded tilts from the XML **and** `.tomostar`, instead of flipping `UseTilt` |
+| `--dry-run` | False | Report what would change and write nothing |
+
+Two modes share the same selection (`--all-true` / `--n-tilts` / `--max-tilt`):
+
+- **Flip mode** (default) rewrites `UseTilt` to `True`/`False`.
+- **Delete mode** (`--delete`) physically removes the excluded tilts from every
+  per-tilt structure in the XML (lists, indexed elements, and grid Z-slices,
+  renumbered to stay contiguous) and the matching rows of the `.tomostar`
+  (matched by movie name, falling back to row order with a warning).
 
 ## Processing Modes
 
@@ -98,6 +115,23 @@ When `--max-tilt > 0`:
 When `--all-true`:
 - Sets all `UseTilt` values to `True`
 - Useful for testing or resetting configurations
+
+### 5. Delete Mode
+When `--delete`:
+- Instead of flipping `UseTilt`, the excluded tilts are **physically removed**
+  from the XML and the matching `.tomostar` (in `--tomostar-dir`).
+- The file is validated before editing (and asserted afterwards); if any
+  per-tilt structure is inconsistent, or the tomostar row count does not match,
+  the series is **left untouched**.
+- Backups are versioned (`<file>.bak`, `.bak.1`, …) next to each file.
+- **Not idempotent:** once tilts are removed, `taSolution.log` view numbers no
+  longer line up with the XML, so re-running would delete the *wrong* tilts.
+  Restore from the `.bak` files before re-running, and re-run downstream
+  WarpTools steps (`ts_ctf`, `ts_aretomo`, `ts_reconstruct`) since the tilt
+  count changed. Preview with `--dry-run` first.
+
+> Warp 2 XML is written back **byte-for-byte** (UTF-8 BOM, declaration, and
+> `" />"` spacing preserved), so an unedited file is unchanged on disk.
 
 ## Expected Directory Structure
 
