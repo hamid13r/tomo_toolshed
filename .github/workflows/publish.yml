@@ -6,7 +6,7 @@ name: publish
 # One-time setup on pypi.org:
 #   Account -> Publishing -> add a GitHub trusted publisher with
 #   owner: hamid13r, repo: tomo_toolshed, workflow: publish.yml,
-#   environment: pypi (matching the environment below).
+#   environment: (leave blank — this workflow sends no environment claim).
 
 on:
   push:
@@ -36,7 +36,6 @@ jobs:
   pypi:
     needs: build
     runs-on: ubuntu-latest
-    environment: pypi
     permissions:
       id-token: write
     steps:
