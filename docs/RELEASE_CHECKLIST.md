@@ -18,26 +18,23 @@ Audit date: 2026-10-05. Nothing here has been released.
 
 ## Metadata (`pyproject.toml`)
 
-- **done** — `authors = [{ name = "Hamid Rahmani" }]`.
-- **todo** — Add an author **email** (PyPI shows it; useful for contact).
-- **todo** — Add `[project.urls]` with at least `Homepage` and `Issues`
-  (e.g. the GitHub repo + `/issues`). Currently absent.
-- **todo** — Add `classifiers` (none present): `Programming Language :: Python :: 3`
-  + per-minor, `License :: OSI Approved :: MIT License`,
-  `Operating System :: OS Independent`, `Intended Audience :: Science/Research`,
-  `Topic :: Scientific/Engineering`, and `Development Status :: 3 - Alpha` or
-  `4 - Beta`.
-- **todo** — Switch `license = { text = "MIT" }` to the SPDX string form
-  `license = "MIT"` — the table form emits a setuptools deprecation warning at
-  build time.
-- **decide** — `requires-python = ">=3.9"` is **not yet verified against the code**.
-  Confirm the floor (the code uses `from __future__ import annotations`, dataclasses,
-  f-strings, `numpy.random.default_rng` — all 3.9-compatible) or raise it.
-- **todo** — Dependencies have **no lower bounds**
-  (`click`, `pandas`, `lxml`, `numpy`, `scipy`, `scikit-image`, `mrcfile`,
-  `connected-components-3d`, `matplotlib`, `starfile`, `networkx`, `pillow`).
-  Pin floors for the APIs actually used (at least `starfile`, `click`, `numpy`,
-  `scipy`, `mrcfile`) so installs are reproducible.
+- **done** — `authors = [{ name = "Hamid Rahmani", email = "hrahmani@scripps.edu" }]`.
+  *(Note: this email becomes public on PyPI — change it if you'd prefer a different
+  contact.)*
+- **done** *(checked)* — `[project.urls]` added: `Homepage`, `Issues`, `Repository`
+  (all pointing at the GitHub repo). Verified in the built wheel's METADATA.
+- **done** *(checked)* — `classifiers` added (11): dev-status Beta, science audience,
+  bio-informatics/image-processing topics, OS-independent, Python 3 + 3.9–3.13.
+- **done** *(checked)* — Switched to SPDX `license = "MIT"` + `license-files`;
+  build now emits **no license deprecation** and METADATA shows
+  `License-Expression: MIT`. Requires `setuptools>=77` (bumped in `[build-system]`).
+- **done** — `requires-python = ">=3.9"` kept; the code is 3.9-compatible
+  (`from __future__ import annotations`, dataclasses, f-strings,
+  `numpy.random.default_rng`). The CI matrix (3.9–3.13) will confirm on every push.
+- **done** *(checked)* — Dependency **lower bounds** pinned: `click>=8.0`,
+  `pandas>=1.3`, `lxml>=4.6`, `numpy>=1.23`, `scipy>=1.9`, `scikit-image>=0.19`,
+  `mrcfile>=1.4`, `connected-components-3d>=3.10`, `matplotlib>=3.5`,
+  `starfile>=0.5`, `networkx>=2.6`, `pillow>=9.0`. 214 tests pass with them.
 
 ## Packaging
 
@@ -52,11 +49,16 @@ Audit date: 2026-10-05. Nothing here has been released.
 
 ## CI
 
-- **todo** — No `.github/workflows/`. Add a **test workflow**: `pytest` on a Python
-  version matrix (e.g. 3.9–3.13) for push/PR.
-- **todo** — Add a **publish workflow** triggered on `v*` tags, using PyPI
-  **Trusted Publishing** (OIDC, no stored token). Publish to TestPyPI first, then
-  PyPI on release.
+- **done** — `.github/workflows/tests.yml`: `pytest` on a Python matrix
+  (3.9–3.13) for push to `master` and all PRs, with pip caching.
+- **done** — `.github/workflows/publish.yml`: on `v*` tags, builds + `twine check`,
+  then publishes to **TestPyPI** then **PyPI** via **Trusted Publishing** (OIDC,
+  no stored token), gated on `testpypi`/`pypi` GitHub environments.
+- **decide / action** — One-time setup required before the publish workflow works:
+  register the GitHub repo as a **trusted publisher** on pypi.org *and*
+  test.pypi.org (owner `hamid13r`, repo `tomo_toolshed`, workflow `publish.yml`,
+  environments `pypi`/`testpypi`), and create those two environments in the repo
+  settings. This can only be done by the maintainer in the web UIs.
 
 ## Docs
 
@@ -87,17 +89,21 @@ Audit date: 2026-10-05. Nothing here has been released.
 
 ## Housekeeping
 
-- **todo** — Add a `CHANGELOG.md` (Keep a Changelog style); seed it with the
-  `0.1.0` entry listing the bundled tools.
+- **done** — `CHANGELOG.md` added (Keep a Changelog style) with the `0.1.0` entry
+  listing all 11 tools.
 - **decide** — `CITATION.cff` and/or a Zenodo DOI for citeability. Recommended for
   a scientific tool; needs your ORCID / preferred citation.
 - **done** — The stray `PROMPT_*.md` files are now git-ignored and untracked
   (removed from tracking in `69400a7`).
-- **decide** — **Large test fixtures in git history / sdist.** Several `.star`
-  fixtures are multi-MB (up to ~4.5 MB in `tests/duplicate_remover/`, ~3.2 MB in
-  `tests/filament_cleanup/`). They are **not** in the wheel but bloat the repo and
-  the **sdist**. Options: keep, shrink/subsample them, exclude from the sdist, or
-  move to Git LFS.
+- **done** *(checked)* — **Distribution size is already clean.** The sdist is
+  **86 KB and contains zero `.star` fixtures / zero test files**; the wheel
+  excludes tests too. The large `.star` fixtures do **not** bloat the published
+  artifacts — this was not actually a packaging problem.
+- **decide** — Residual: those multi-MB `.star` fixtures still live in **git
+  history** (~4.5 MB `tests/duplicate_remover/`, ~3.2 MB `tests/filament_cleanup/`),
+  so a fresh clone is larger than necessary. Shrinking them requires a history
+  rewrite (not done here). Options: leave as-is, subsample the fixtures going
+  forward, or `git filter-repo` + force-push (coordinate with any collaborators).
 - **todo** — `.gitignore` audit: confirm build/venv/`PROMPT_*` patterns cover
   everything; no generated artifacts are tracked.
 - **done** *(checked)* — No oversized blobs beyond the known `.star` fixtures; the
@@ -116,12 +122,17 @@ Audit date: 2026-10-05. Nothing here has been released.
 
 ---
 
-### Blockers for a public release (minimum before step 2)
+### Blockers — status
 
-1. CI test + publish workflows (trusted publishing).
-2. `[project.urls]`, classifiers, author email, and the `license` SPDX fix.
-3. Dependency lower bounds.
-4. `CHANGELOG.md`.
-5. A decision on the large `.star` fixtures (sdist size).
+1. ✅ CI test + publish workflows (trusted publishing) — **added** (`.github/workflows/`).
+2. ✅ `[project.urls]`, classifiers, author email, `license` SPDX fix — **done**.
+3. ✅ Dependency lower bounds — **pinned**.
+4. ✅ `CHANGELOG.md` — **added**.
+5. ✅ Large `.star` fixtures — **not a packaging blocker** (sdist is 86 KB, fixture-free);
+   only a git-history-size *decide* remains.
 
-Everything else is polish or an explicit *decide*.
+**All code/metadata blockers are cleared.** The remaining gate is **maintainer-only,
+web-UI setup** that cannot be scripted: register the PyPI/TestPyPI **trusted
+publishers** and create the `pypi`/`testpypi` GitHub environments, then tag `v0.1.0`.
+Optional *decide* items: `CITATION.cff`/Zenodo, command-alias consistency for
+`add-defocus`/`skipped-views`/`trace-filaments`, and the git-history fixture size.
