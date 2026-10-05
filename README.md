@@ -69,6 +69,40 @@ The layout is designed so a new lightweight tool is easy to drop in. Convention:
 4. **Add a docs page** at `docs/<your_tool>.md` and link it from the table above.
 5. **Add tests** under `tests/<your_tool>/`.
 
+## Acknowledgments
+
+These tools read, write, or interoperate with files from the cryo-ET ecosystem,
+and build on established open-source software. Please cite the relevant upstream
+projects when you use the corresponding part of this toolshed (see
+[`CITATION.cff`](CITATION.cff) for structured references).
+
+Interoperates with / builds on:
+
+- [Warp / WarpTools](https://github.com/warpem/warp) — `xml-reconstruct`
+  reimplements `ts_reconstruct`, and several tools read Warp XML / `.tomostar` /
+  `.settings` (Tegunov & Cramer, *Nat. Methods* 2019).
+- [IMOD / etomo](https://bio3d.colorado.edu/imod/) — `skipped-views` reads etomo
+  `taSolution.log`; `write-ebt` builds a `batchruntomo` `.ebt` project (Kremer,
+  Mastronarde & McIntosh, *J. Struct. Biol.* 1996).
+- [novaCTF](https://github.com/turonova/novaCTF) — 3D-CTF correction in the
+  tomography pipeline (Turoňová et al., *J. Struct. Biol.* 2017).
+- [AreTomo](https://github.com/czimaginginstitute) — marker-free tilt-series
+  alignment, an alignment source reflected in the metadata (Zheng et al., 2022).
+- [RELION](https://github.com/3dem/relion) — the star-file format target for the
+  helical / oriented-particle tools (RELION 4.x).
+- [IsoNet](https://github.com/IsoNet-cryoET/IsoNet) — `add-defocus` fills IsoNet
+  star files.
+
+Built on these Python libraries: [mrcfile](https://github.com/ccpem/mrcfile),
+[starfile](https://github.com/teamtomo/starfile),
+[NumPy](https://numpy.org/), [SciPy](https://scipy.org/),
+[scikit-image](https://scikit-image.org/), [pandas](https://pandas.pydata.org/),
+[Click](https://click.palletsprojects.com/),
+[NetworkX](https://networkx.org/),
+[connected-components-3d](https://github.com/seung-lab/connected-components-3d),
+[Matplotlib](https://matplotlib.org/), [Pillow](https://python-pillow.org/), and
+[lxml](https://lxml.de/).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

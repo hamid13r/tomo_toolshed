@@ -29,3 +29,97 @@ keywords:
   - etomo
   - segmentation
   - curation
+references:
+  - type: software
+    title: "Warp / WarpTools"
+    authors:
+      - family-names: Tegunov
+        given-names: Dimitry
+    repository-code: "https://github.com/warpem/warp"
+    notes: "Reconstruction recipe (ts_reconstruct); tilt-series XML/tomostar/settings; CTF."
+  - type: article
+    title: "Real-time cryo-electron microscopy data preprocessing with Warp"
+    authors:
+      - family-names: Tegunov
+        given-names: Dimitry
+      - family-names: Cramer
+        given-names: Patrick
+    doi: "10.1038/s41592-019-0580-y"
+    journal: "Nature Methods"
+    year: 2019
+  - type: software
+    title: "IMOD / etomo"
+    authors:
+      - family-names: Mastronarde
+        given-names: David N.
+    url: "https://bio3d.colorado.edu/imod/"
+    notes: "etomo taSolution.log parsing; batchruntomo .ebt generation."
+  - type: article
+    title: "Computer visualization of three-dimensional image data using IMOD"
+    authors:
+      - family-names: Kremer
+        given-names: James R.
+      - family-names: Mastronarde
+        given-names: David N.
+      - family-names: McIntosh
+        given-names: J. Richard
+    doi: "10.1006/jsbi.1996.0013"
+    journal: "Journal of Structural Biology"
+    year: 1996
+  - type: software
+    title: novaCTF
+    authors:
+      - family-names: Turoňová
+        given-names: Beata
+    repository-code: "https://github.com/turonova/novaCTF"
+    notes: "3D-CTF correction in the tomography pipeline."
+  - type: article
+    title: >-
+      Efficient 3D-CTF correction for cryo-electron tomography using NovaCTF
+      improves subtomogram averaging resolution to 3.4 Å
+    authors:
+      - family-names: Turoňová
+        given-names: Beata
+      - family-names: Schur
+        given-names: Florian K. M.
+      - family-names: Wan
+        given-names: William
+      - family-names: Briggs
+        given-names: John A. G.
+    doi: "10.1016/j.jsb.2017.07.007"
+    journal: "Journal of Structural Biology"
+    year: 2017
+  - type: software
+    title: AreTomo
+    authors:
+      - family-names: Zheng
+        given-names: Shawn
+    notes: "Marker-free tilt-series alignment (an alignment source for the metadata)."
+  - type: software
+    title: mrcfile
+    authors:
+      - family-names: Palmer
+        given-names: Colin M.
+    repository-code: "https://github.com/ccpem/mrcfile"
+    notes: "MRC file I/O library."
+  - type: software
+    title: starfile
+    authors:
+      - family-names: Burt
+        given-names: Alister
+    repository-code: "https://github.com/teamtomo/starfile"
+    notes: "STAR file I/O library."
+  - type: software
+    title: RELION
+    authors:
+      - family-names: Scheres
+        given-names: Sjors H. W.
+    repository-code: "https://github.com/3dem/relion"
+    notes: "Output star-file format target (RELION 4.x)."
+  - type: software
+    title: IsoNet
+    authors:
+      - family-names: Liu
+        given-names: Yun-Tao
+    repository-code: "https://github.com/IsoNet-cryoET/IsoNet"
+    notes: "add-defocus fills IsoNet star files."
