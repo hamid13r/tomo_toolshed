@@ -50,7 +50,7 @@ bit-identical match needs Warp's CUDA gridding kernel:
 ## Install
 
 ```bash
-pip install -r requirements.txt      # numpy, scipy, mrcfile, pillow
+pip install -r requirements.txt      # click, numpy, scipy, mrcfile, pillow
 ```
 SciPy is optional: without it, cubic-grid interpolation falls back to linear
 (exact for the per-tilt node-sampled grids, approximate for true 2-D/3-D grids).
@@ -58,11 +58,11 @@ SciPy is optional: without it, cubic-grid interpolation falls back to linear
 ## Quick start
 
 ```bash
-python reconstruct_tomo.py \
+warp-recont-test \
     --xml       VLP3x3_p03_ts_002_blended_frames.xml \
     --tomostar  VLP3x3_p03_ts_002_blended_frames.tomostar \
     --settings  warp_tiltseries.settings \
-    --tilt_dir  warp_frameseries/average \
+    --tilt-dir  warp_frameseries/average \
     --angpix    10 \
     --output    reconstruction \
     --deconv
@@ -147,8 +147,8 @@ warp_recon/
   filters.py     preprocessing + deconvolution    <-- edit for new FILTERING
   reconstruct.py Fourier-slice reconstruction engine
   mrc_io.py      MRC/PNG read/write
-reconstruct_tomo.py   command-line front-end (mirrors ts_reconstruct)
-validate.py           synthetic self-consistency test
+  cli.py         click command-line front-end (mirrors ts_reconstruct)
+tests/                pytest suite (metadata, self-consistency, end-to-end)
 ```
 
 ## Source references

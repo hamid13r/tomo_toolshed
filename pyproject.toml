@@ -10,19 +10,21 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "GPL-3.0-only" }
 dependencies = [
+    "click",
     "numpy>=1.23",
     "scipy>=1.9",
     "mrcfile>=1.4",
     "pillow>=9.0",
 ]
 
+[project.optional-dependencies]
+test = ["pytest"]
+
 # NOTE: the distribution / repo is named `warp_recont_test`, but the importable
-# Python package stays `warp_recon` (so existing `import warp_recon` code and the
-# tested modules keep working). `pip install -e .` gives you both the
+# Python package stays `warp_recon`. `pip install -e .` gives you both the
 # `warp_recon` package and the `warp-recont-test` command below.
 [project.scripts]
-warp-recont-test = "reconstruct_tomo:main"
+warp-recont-test = "warp_recon.cli:xml_reconstruct"
 
 [tool.setuptools]
-py-modules = ["reconstruct_tomo"]
 packages = ["warp_recon"]
