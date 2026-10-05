@@ -1,12 +1,12 @@
 name: publish
 
 # Build on every v* tag and publish via PyPI Trusted Publishing (OIDC — no
-# API tokens stored in the repo). TestPyPI first, then PyPI.
+# API tokens stored in the repo).
 #
-# One-time setup on each index (pypi.org and test.pypi.org):
+# One-time setup on pypi.org:
 #   Account -> Publishing -> add a GitHub trusted publisher with
 #   owner: hamid13r, repo: tomo_toolshed, workflow: publish.yml,
-#   environment: testpypi / pypi (matching the environments below).
+#   environment: pypi (matching the environment below).
 
 on:
   push:
@@ -33,23 +33,8 @@ jobs:
           name: dist
           path: dist/
 
-  testpypi:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: testpypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-
   pypi:
-    needs: testpypi
+    needs: build
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
