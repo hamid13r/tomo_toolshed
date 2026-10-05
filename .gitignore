@@ -23,6 +23,9 @@ env/
 .idea/
 .DS_Store
 
+# Task prompt scratch files (kept locally, never committed)
+PROMPT_*.md
+
 # Curator output
 out/
 *.out.mrc
