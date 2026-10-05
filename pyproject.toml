@@ -23,6 +23,7 @@ dependencies = [
     "matplotlib",
     "starfile",
     "networkx",
+    "pillow",
 ]
 
 [project.optional-dependencies]

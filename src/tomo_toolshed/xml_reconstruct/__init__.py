@@ -1,5 +1,5 @@
 """
-warp_recon -- a faithful, hackable NumPy/SciPy re-implementation of WarpTools'
+tomo_toolshed.xml_reconstruct -- a faithful, hackable NumPy/SciPy re-implementation of WarpTools'
 `ts_reconstruct` tomogram reconstruction, built for experimenting with new
 weighting and filtering.
 

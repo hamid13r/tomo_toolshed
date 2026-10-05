@@ -1,8 +1,9 @@
 """Click front-end for the reconstruction engine, mirroring WarpTools
 ``ts_reconstruct``.
 
-The pure logic lives in the :mod:`warp_recon` package (this is the click layer
-only). User errors raise :class:`click.ClickException` rather than tracebacks.
+The pure logic lives in the :mod:`tomo_toolshed.xml_reconstruct` package (this is
+the click layer only). User errors raise :class:`click.ClickException` rather
+than tracebacks.
 
 Every multi-word option accepts both a dash and an underscore spelling
 (``--tilt-stack`` / ``--tilt_stack``) so older command lines keep working.
@@ -15,10 +16,10 @@ from pathlib import Path
 import click
 import numpy as np
 
-from warp_recon import load_tiltseries_xml, reconstruct, ReconOptions
-from warp_recon import warp_weighting, make_dose_bfactor_weighting
-from warp_recon.mrc_io import read_mrc, write_mrc, write_png_slice
-from warp_recon.metadata import read_settings_pixelsize, read_settings_tomo_dims
+from . import load_tiltseries_xml, reconstruct, ReconOptions
+from . import warp_weighting, make_dose_bfactor_weighting
+from .mrc_io import read_mrc, write_mrc, write_png_slice
+from .metadata import read_settings_pixelsize, read_settings_tomo_dims
 
 
 def load_tilt_images(model, tilt_stack, tilt_dir):

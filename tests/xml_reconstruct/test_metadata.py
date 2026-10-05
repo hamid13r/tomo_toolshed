@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warp_recon import load_tiltseries_xml
+from tomo_toolshed.xml_reconstruct import load_tiltseries_xml
 
 
 def test_load_tiltseries_xml_parses_per_tilt_arrays(synthetic_series):

@@ -5,16 +5,16 @@ import copy
 
 import numpy as np
 
-from warp_recon import load_tiltseries_xml, reconstruct, ReconOptions
-from warp_recon.mrc_io import read_mrc
+from tomo_toolshed.xml_reconstruct import load_tiltseries_xml, reconstruct, ReconOptions
+from tomo_toolshed.xml_reconstruct.mrc_io import read_mrc
 
 
 def test_self_consistency_phantom_recovered():
     """Forward-project a phantom through the exact Warp geometry, reconstruct,
     and check the phantom is recovered (missing-wedge-limited)."""
-    from warp_recon.metadata import TiltSeriesModel
-    from warp_recon.ctf import CTFParams
-    from warp_recon import geometry as geo
+    from tomo_toolshed.xml_reconstruct.metadata import TiltSeriesModel
+    from tomo_toolshed.xml_reconstruct.ctf import CTFParams
+    from tomo_toolshed.xml_reconstruct import geometry as geo
 
     dz, dy, dx = 32, 48, 48
     angpix = 10.0
