@@ -25,7 +25,6 @@ import os
 from pathlib import Path
 import numpy as np
 
-import numpy as np
 from warp_recon import load_tiltseries_xml, reconstruct, ReconOptions
 from warp_recon import warp_weighting, make_dose_bfactor_weighting
 from warp_recon.mrc_io import read_mrc, write_mrc, write_png_slice
