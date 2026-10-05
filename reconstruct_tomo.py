@@ -83,8 +83,9 @@ def main():
     ap.add_argument("--dont_normalize", action="store_true")
     ap.add_argument("--subvolume_size", type=int, default=64)
     ap.add_argument("--subvolume_padding", type=float, default=3.0)
-    ap.add_argument("--pad_factor", type=float, default=1.0,
-                    help="reconstruction-cube padding (global engine)")
+    ap.add_argument("--pad_factor", type=float, default=1.15,
+                    help="in-plane grid padding to hold the tilted footprint "
+                         "(global engine); raise if edges look clipped at high tilt")
     ap.add_argument("--float16", action="store_true", help="write 16-bit MRC like Warp")
 
     # experimentation hooks
