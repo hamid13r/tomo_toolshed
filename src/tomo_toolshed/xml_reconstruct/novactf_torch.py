@@ -16,7 +16,7 @@ motion) stays on the CPU -- it is small, and novactf.py prepares it for
 tilt j+1 while the GPU works on tilt j.
 
 Arithmetic is float32 on the device (the numba path uses float64 for the
-CTF phase); agreement with the CPU volume is checked in validate.py.
+CTF phase); agreement with the CPU volume is checked in tests/xml_reconstruct/validate.py.
 """
 from __future__ import annotations
 import numpy as np

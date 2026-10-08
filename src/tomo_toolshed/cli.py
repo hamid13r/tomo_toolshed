@@ -20,6 +20,7 @@ from .split_star.cli import split_star
 from .scale_star.cli import scale_star
 from .filament_cleanup.cli import filament_cleanup
 from .xml_reconstruct.cli import xml_reconstruct
+from .xml_reconstruct.compare_cli import compare_tomograms
 
 
 # Declare the group name explicitly with underscores so click does not rewrite
@@ -40,7 +41,8 @@ def tomo_toolshed():
     split-star         Split a star file into one star file per group.
     scale-star         Rescale star-file coordinates between pixel sizes.
     filament-cleanup   Remove off-helix particles after helical refinement.
-    xml-reconstruct    Reconstruct a Warp tomogram from its XML, with weighting/filtering hooks.
+    xml-reconstruct    Reconstruct a tomogram from a Warp XML (Warp, etomo or novaCTF engine).
+    compare-tomograms  Compare tomograms against a reference (FSC, correlation, spectra).
     """
 
 
@@ -55,6 +57,7 @@ tomo_toolshed.add_command(split_star, name="split-star")
 tomo_toolshed.add_command(scale_star, name="scale-star")
 tomo_toolshed.add_command(filament_cleanup, name="filament-cleanup")
 tomo_toolshed.add_command(xml_reconstruct, name="xml-reconstruct")
+tomo_toolshed.add_command(compare_tomograms, name="compare-tomograms")
 
 # Also accept the underscored spellings. Each is a hidden copy so it stays out of
 # the --help index while keeping the underscored command working as typed.
@@ -81,6 +84,10 @@ tomo_toolshed.add_command(_filament_cleanup_alias, name="filament_cleanup")
 _xml_reconstruct_alias = copy.copy(xml_reconstruct)
 _xml_reconstruct_alias.hidden = True
 tomo_toolshed.add_command(_xml_reconstruct_alias, name="xml_reconstruct")
+
+_compare_tomograms_alias = copy.copy(compare_tomograms)
+_compare_tomograms_alias.hidden = True
+tomo_toolshed.add_command(_compare_tomograms_alias, name="compare_tomograms")
 
 _add_defocus_alias = copy.copy(add_defocus)
 _add_defocus_alias.hidden = True

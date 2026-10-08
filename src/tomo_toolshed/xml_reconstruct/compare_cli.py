@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Compare one or more reconstructions against a reference tomogram (e.g. this
 engine's output vs WarpTools `ts_reconstruct`): real-space stats, an
@@ -7,20 +6,22 @@ power spectra. Writes PNGs + a JSON summary; prints a text report.
 
 Example
 -------
-    python compare_tomograms.py \
+    tomo_toolshed compare-tomograms \
         --reference warp_tiltseries/reconstruction/TS_01_21.16Apx.mrc \
         --recon mine_plain=recon_mine_21/TS_01.mrc \
         --recon mine_deconv=recon_mine_21/TS_01_deconv.mrc \
         --output compare_21
 """
 from __future__ import annotations
-import argparse
 import json
 import os
+from types import SimpleNamespace
+
+import click
 import numpy as np
 
-from tomo_toolshed.xml_reconstruct.mrc_io import read_mrc
-from tomo_toolshed.xml_reconstruct.compare import (
+from .mrc_io import read_mrc
+from .compare import (
     robust_stats, find_best_orientation, apply_flip, pearson, central_crop,
     specimen_band_pearson, fourier_shell_correlation, radial_power_spectrum,
 )
@@ -30,28 +31,41 @@ COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]  # blue, orange, aqua, yel
 REF_COLOR = "#4a3aa7"  # violet, reserved for the reference series
 
 
-def parse_recon_arg(s):
-    if "=" not in s:
-        raise argparse.ArgumentTypeError("--recon expects NAME=PATH")
-    name, path = s.split("=", 1)
-    return name, path
+def _parse_recon(ctx, param, values):
+    out = []
+    for s in values:
+        if "=" not in s:
+            raise click.BadParameter("expects NAME=PATH", ctx=ctx, param=param)
+        out.append(tuple(s.split("=", 1)))
+    return out
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--reference", required=True, help="reference volume (e.g. Warp's ts_reconstruct output)")
-    ap.add_argument("--reference_label", default="warp")
-    ap.add_argument("--recon", action="append", required=True, type=parse_recon_arg,
-                    metavar="NAME=PATH", help="one or more volumes to compare against --reference")
-    ap.add_argument("--output", default="compare", help="output directory")
-    ap.add_argument("--angpix", type=float, help="override voxel size (A); default reads it from the reference header")
-    ap.add_argument("--crop_frac", type=float, default=0.1,
-                    help="fraction trimmed off each side per axis for real-space stats/correlation, to keep missing-wedge edge shadows out (default 0.1)")
-    ap.add_argument("--no_flip_search", action="store_true",
-                    help="skip the axis-flip search and assume identity orientation")
-    args = ap.parse_args()
-
+@click.command(name="compare-tomograms")
+@click.option("--reference", required=True,
+              type=click.Path(exists=True, dir_okay=False),
+              help="reference volume (e.g. Warp's ts_reconstruct output)")
+@click.option("--reference-label", "--reference_label", "reference_label",
+              default="warp", show_default=True)
+@click.option("--recon", "recon", multiple=True, required=True,
+              callback=_parse_recon, metavar="NAME=PATH",
+              help="volume to compare against --reference (repeatable)")
+@click.option("--output", default="compare", show_default=True,
+              help="output directory")
+@click.option("--angpix", type=float, default=None,
+              help="override voxel size (A); default reads it from the reference header")
+@click.option("--crop-frac", "--crop_frac", "crop_frac", type=float, default=0.1,
+              show_default=True,
+              help="fraction trimmed off each side per axis for real-space "
+                   "stats/correlation, to keep missing-wedge edge shadows out")
+@click.option("--no-flip-search", "--no_flip_search", "no_flip_search", is_flag=True,
+              help="skip the axis-flip search and assume identity orientation")
+def compare_tomograms(reference, reference_label, recon, output, angpix,
+                      crop_frac, no_flip_search):
+    """Compare reconstructions against a reference tomogram (FSC, Pearson,
+    power spectrum, flip search)."""
+    args = SimpleNamespace(reference=reference, reference_label=reference_label,
+                           recon=recon, output=output, angpix=angpix,
+                           crop_frac=crop_frac, no_flip_search=no_flip_search)
     os.makedirs(args.output, exist_ok=True)
     ref, ref_angpix = read_mrc(args.reference)
     angpix = args.angpix or ref_angpix
@@ -68,7 +82,7 @@ def main():
     for name, path in args.recon:
         vol, vs = read_mrc(path)
         if vol.shape != ref.shape:
-            raise SystemExit(
+            raise click.ClickException(
                 f"shape mismatch: reference {ref.shape} vs {name} {vol.shape} "
                 f"({path}) -- resample/crop before comparing")
 
@@ -227,4 +241,4 @@ def _slice_comparison(ref, recons, ref_label, outdir):
 
 
 if __name__ == "__main__":
-    main()
+    compare_tomograms()

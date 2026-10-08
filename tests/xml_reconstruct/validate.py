@@ -10,7 +10,10 @@ the Fourier-insertion / weighting normalization end to end.
 A high correlation (structure recovered, blurred only by the missing wedge)
 means the pipeline is internally correct. Validating that it matches *Warp's*
 output bit-for-bit additionally requires a real project + a ts_reconstruct
-tomogram (see README, "Validating against Warp").
+tomogram (see docs/xml_reconstruct.md, "Validating against Warp").
+
+Run directly with ``python tests/xml_reconstruct/validate.py``; the same checks
+run under pytest via test_engines.py.
 """
 from __future__ import annotations
 import copy
@@ -116,7 +119,7 @@ def _corr(a, b):
 def _flip_table(phantom, rec):
     """Correlation of every axis-flip of `rec` against the phantom. Used to
     pin IMOD's output handedness rather than assume it (see
-    warp_recon.etomo._reorient)."""
+    tomo_toolshed.xml_reconstruct.etomo._reorient)."""
     out = {}
     for fz in (1, -1):
         for fy in (1, -1):
@@ -125,11 +128,11 @@ def _flip_table(phantom, rec):
     return out
 
 
-def test_etomo(verbose=True):
+def test_etomo(verbose=True, workdir=None):
     """Same phantom, same Warp geometry, but reconstructed by IMOD `tilt`.
 
     This is the end-to-end certificate for the Warp -> IMOD alignment
-    conversion in warp_recon/etomo.py: the .xf / .tlt / XAXISTILT are consumed
+    conversion in xml_reconstruct/etomo.py: the .xf / .tlt / XAXISTILT are consumed
     by the real `newstack` and `tilt` binaries, so a wrong sign or a wrong
     shift convention shows up as a collapsed correlation. The model
     deliberately carries a non-zero LevelAngleX/Y, per-tilt tilt-axis jitter
@@ -152,8 +155,9 @@ def test_etomo(verbose=True):
                        axis_jitter=0.4, offset_scale=25.0)
     imgs = forward_project(model, phantom, angpix)
 
-    workdir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "_selftest", "etomo")
+    if workdir is None:
+        workdir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "_selftest", "etomo")
     shutil.rmtree(workdir, ignore_errors=True)
 
     def opts_for(mode, **kw):
@@ -185,7 +189,7 @@ def test_etomo(verbose=True):
               + ", ".join(f"{k}={v:+.3f}" for k, v in sorted(table.items(),
                                                              key=lambda kv: -kv[1])[:4]))
         print("FAIL: etomo output orientation is wrong -- fix "
-              "warp_recon.etomo._reorient to apply this flip")
+              "tomo_toolshed.xml_reconstruct.etomo._reorient to apply this flip")
         return False
     ok = c_id > 0.55
     print("PASS (etomo geometry)" if ok else
@@ -195,7 +199,7 @@ def test_etomo(verbose=True):
 
 def test_novactf(verbose=True):
     """Same jittered phantom through the real-space novaCTF engine
-    (warp_recon/novactf.py). Two checks: the vectorized per-voxel geometry
+    (xml_reconstruct/novactf.py). Two checks: the vectorized per-voxel geometry
     (positions_one_tilt) must equal positions_in_all_tilts exactly, and the
     back-projection must recover the phantom in the identity orientation --
     its geometry is Warp's own, so no axis flip may be needed."""

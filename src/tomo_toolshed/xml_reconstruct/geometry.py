@@ -154,9 +154,10 @@ def positions_in_all_tilts(model, coord_phys, size_rounding=(1.0, 1.0, 1.0)):
 # --------------------------------------------------------------------------- #
 # Vectorized GetPositionInAllTilts for ONE tilt and MANY points.              #
 # Same math as positions_in_all_tilts, line for line, so the real-space       #
-# 3D-CTF engine (ctf3d.py) can project every voxel through Warp's full        #
+# 3D-CTF engine (novactf.py) can project every voxel through Warp's full        #
 # geometry -- including the local-motion grids -- instead of only the        #
-# tomogram centre. Checked against positions_in_all_tilts in validate.py.    #
+# tomogram centre. Checked against positions_in_all_tilts in validate.py   #
+# (tests/xml_reconstruct/validate.py).                                       #
 # Returns x_A, y_A (image position, Angstrom) and defocus_um, each (M,).     #
 # --------------------------------------------------------------------------- #
 def positions_one_tilt(model, t, coords_phys, size_rounding=(1.0, 1.0, 1.0),

@@ -1,5 +1,5 @@
 """
-One thread count for every parallel part of warp_recon.
+One thread count for every parallel part of xml_reconstruct.
 
 Everything that runs in parallel reads `get_threads()`: scipy.fft `workers`,
 the thread pools (tilt loading/preprocessing, novactf geometry), numba's
