@@ -103,3 +103,29 @@ def make_dose_bfactor_weighting(dose_bfactor_scale=4.0, cos_weighting=True):
                 p.scale = 1.0 * (1.0 if model.use_tilt[t] else 1e-4)
         return params
     return fn
+
+
+# ------------------------------------------------------------------ #
+# MotionCor3-style dose weighting: the Grant & Grigorieff (2015)      #
+# critical-exposure curve MotionCor3 applies per FRAME, applied here  #
+# per TILT using each tilt's accumulated dose.                        #
+# ------------------------------------------------------------------ #
+def motioncor3_dose_weighting(model, coord_phys, defocus_um, use_global_weights=False):
+    """Same Scale/geometry as `warp_weighting`, but replaces Warp's linear
+    dose Bfactor (`Bfactor = -Dose*4`, a single Gaussian falloff) with
+    MotionCor3's per-frame critical-exposure curve (Correct/GWeightFrame.cu),
+    applied here per tilt via each tilt's accumulated dose
+    (`model.dose[t]`, the same quantity Warp's own Bfactor model uses).
+
+    The curve was fit directly to measured resolution-dependent radiation
+    damage (Grant & Grigorieff, eLife 2015) rather than approximated by one
+    Gaussian, and falls off more slowly at low dose / high resolution -- the
+    aim is to let more high-resolution signal from low-dose (near-zero-tilt)
+    images survive into the reconstruction. See ctf.motioncor3_dose_envelope
+    for the actual curve.
+    """
+    params = warp_weighting(model, coord_phys, defocus_um, use_global_weights)
+    for t, p in enumerate(params):
+        p.dose_model = "motioncor3"
+        p.dose_ea2 = float(model.dose[t])
+    return params

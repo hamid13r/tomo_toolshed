@@ -33,3 +33,11 @@ out/
 # Large example data (too big for git; users drop their own pair in example/)
 example/**/*.mrc
 example/**/*.rec
+
+# reconstruction outputs and scratch
+reconstruction*/
+recon_mine*/
+recon_etomo*/
+etomo_*/
+_selftest/
+VALIDATION.md

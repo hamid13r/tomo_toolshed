@@ -149,3 +149,63 @@ def positions_in_all_tilts(model, coord_phys, size_rounding=(1.0, 1.0, 1.0)):
     xy *= sr[:2]
     defocus_um *= sr[2]
     return xy, defocus_um
+
+
+# --------------------------------------------------------------------------- #
+# Vectorized GetPositionInAllTilts for ONE tilt and MANY points.              #
+# Same math as positions_in_all_tilts, line for line, so the real-space       #
+# 3D-CTF engine (ctf3d.py) can project every voxel through Warp's full        #
+# geometry -- including the local-motion grids -- instead of only the        #
+# tomogram centre. Checked against positions_in_all_tilts in validate.py.    #
+# Returns x_A, y_A (image position, Angstrom) and defocus_um, each (M,).     #
+# --------------------------------------------------------------------------- #
+def positions_one_tilt(model, t, coords_phys, size_rounding=(1.0, 1.0, 1.0),
+                       local_motion=True):
+    n = model.n_tilts
+    Vx, Vy, Vz = (float(v) for v in model.volume_dims_A)
+    vol_center = np.asarray(model.volume_dims_A, np.float64) / 2.0
+    img_center = np.asarray(model.image_dims_A, np.float64) / 2.0
+    gstep = 1.0 / max(n - 1, 1)
+    dose_span = (model.max_dose - model.min_dose) or 1.0
+
+    coord = np.atleast_2d(np.asarray(coords_phys, dtype=np.float64))
+    m = coord.shape[0]
+
+    dose_frac = (model.dose[t] - model.min_dose) / dose_span
+    warp_coords = np.stack([coord[:, 0] / Vx, coord[:, 1] / Vy, coord[:, 2] / Vz,
+                            np.full(m, dose_frac)], axis=1)
+    centered = coord - vol_center
+    centered = centered + np.stack([model.grid_volume_warp_x.interpolate(warp_coords),
+                                    model.grid_volume_warp_y.interpolate(warp_coords),
+                                    model.grid_volume_warp_z.interpolate(warp_coords)],
+                                   axis=1)
+
+    R = tilt_matrix(model, t)
+    transformed = centered @ R.T
+    tx = transformed[:, 0] + model.axis_offset_x[t] + img_center[0]
+    ty = transformed[:, 1] + model.axis_offset_y[t] + img_center[1]
+    if model.are_angles_inverted:
+        cflip = centered.copy()
+        cflip[:, 2] *= -1
+        zc = cflip @ tilt_matrix_flipped(model, t)[2]
+    else:
+        zc = transformed[:, 2]
+
+    if local_motion:
+        trans_norm = np.stack([tx / model.image_dims_A[0], ty / model.image_dims_A[1],
+                               np.full(m, t * gstep)], axis=1)
+        tx = tx - model.grid_movement_x.interpolate(trans_norm)
+        ty = ty - model.grid_movement_y.interpolate(trans_norm)
+
+    gx_, gy_, _gz = model.grid_ctf_defocus.dims
+    if gx_ <= 1 and gy_ <= 1:
+        # per-tilt-only defocus grid (the usual case): one value for every
+        # point, so evaluate it once instead of a cubic spline per point
+        gdef = model.grid_ctf_defocus.interpolate(np.array([[0.5, 0.5, t * gstep]]))[0]
+    else:
+        dc = np.stack([coord[:, 0] / Vx, coord[:, 1] / Vy, np.full(m, t * gstep)], axis=1)
+        gdef = model.grid_ctf_defocus.interpolate(dc)
+    defocus_um = gdef + 1e-4 * zc
+
+    sr = np.asarray(size_rounding, np.float64)
+    return tx * sr[0], ty * sr[1], defocus_um * sr[2]
