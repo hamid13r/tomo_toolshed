@@ -42,7 +42,8 @@ pip install -e .
 | `tomo_toolshed split-star` | Split a particle star file into one star file per tomogram/micrograph/source, flat by default or one subdirectory per group with `--dir-per-group` (carries through optics/general blocks). | [docs/split_star.md](docs/split_star.md) |
 | `tomo_toolshed scale-star` | Rescale particle coordinates between pixel sizes (with optional shift), rewriting the coordinate pixel-size columns, across RELION 3/4/5 and M/WarpTools star flavors (leaves `rlnImagePixelSize` and `*Angst` columns alone). | [docs/scale_star.md](docs/scale_star.md) |
 | `tomo_toolshed filament-cleanup` | After RELION helical refinement, remove particles that sit off a smooth curve through their filament or whose tilt/psi axis disagrees with their neighbours; writes the cleaned star file plus a star file of the removed particles for inspection. | [docs/filament_cleanup.md](docs/filament_cleanup.md) |
-| `tomo_toolshed xml-reconstruct` | Reconstruct a Warp/WarpTools tomogram from its tilt-series XML (a NumPy/SciPy re-implementation of `ts_reconstruct`), with swappable weighting and filtering hooks for making new versions of a tomogram from the same aligned tilts. | [docs/xml_reconstruct.md](docs/xml_reconstruct.md) |
+| `tomo_toolshed xml-reconstruct` | Reconstruct a tomogram from a Warp/WarpTools tilt-series XML with one of three engines: a NumPy/SciPy re-implementation of `ts_reconstruct` (default), IMOD `tilt` WBP/SIRT (`--engine etomo`), or novaCTF 3D-CTF on Warp's full geometry (`--engine novactf`, optional GPU). Swappable weighting and filtering hooks for making new versions of a tomogram from the same aligned tilts. | [docs/xml_reconstruct.md](docs/xml_reconstruct.md) |
+| `tomo_toolshed compare-tomograms` | Compare reconstructions against a reference tomogram: FSC, Pearson correlation, power spectra and an axis-flip/sign search, with plots and a JSON summary. | [docs/xml_reconstruct.md#compare-tomograms](docs/xml_reconstruct.md#compare-tomograms) |
 
 ## Development
 
@@ -82,10 +83,15 @@ Interoperates with / builds on:
   reimplements `ts_reconstruct`, and several tools read Warp XML / `.tomostar` /
   `.settings` (Tegunov & Cramer, *Nat. Methods* 2019).
 - [IMOD / etomo](https://bio3d.colorado.edu/imod/) — `skipped-views` reads etomo
-  `taSolution.log`; `write-ebt` builds a `batchruntomo` `.ebt` project (Kremer,
+  `taSolution.log`; `write-ebt` builds a `batchruntomo` `.ebt` project;
+  `xml-reconstruct --engine etomo` drives IMOD `tilt` (Kremer,
   Mastronarde & McIntosh, *J. Struct. Biol.* 1996).
-- [novaCTF](https://github.com/turonova/novaCTF) — 3D-CTF correction in the
-  tomography pipeline (Turoňová et al., *J. Struct. Biol.* 2017).
+- [novaCTF](https://github.com/turonova/novaCTF) — `xml-reconstruct --engine
+  novactf` and `--ctf3d-*` re-implement its 3D-CTF correction (Turoňová et al.,
+  *J. Struct. Biol.* 2017).
+- [MotionCor3](https://github.com/czimaginginstitute/MotionCor3) —
+  `xml-reconstruct --dose-weighting motioncor3` uses the critical-exposure
+  curve it applies (Grant & Grigorieff, *eLife* 2015).
 - [AreTomo](https://github.com/czimaginginstitute) — marker-free tilt-series
   alignment, an alignment source reflected in the metadata (Zheng et al., 2022).
 - [RELION](https://github.com/3dem/relion) — the star-file format target for the
