@@ -186,3 +186,105 @@ def test_missing_mdoc_skips_file(w1, tmp_path):
     assert res.exit_code == 0
     assert "mdoc for" in res.output and "not found" in res.output
     assert open(xml, "rb").read() == before
+
+
+# --------------------------------------------------------------------------- #
+# --angles-from-log
+# --------------------------------------------------------------------------- #
+def _tomostar_col(path, col):
+    raw = open(path, "rb").read().decode()
+    lines, cols, mcol, data_idx = rsv.parse_tomostar_text(raw)
+    c = cols.index(col)
+    return {os.path.basename(lines[i].split()[mcol]): float(lines[i].split()[c])
+            for i in data_idx}
+
+
+@pytest.mark.parametrize("ts", [TS2, TS3])
+def test_log_angles_for_xml(ts):
+    root = rsv.parse_xml(os.path.join(W1, ts + ".xml")).getroot()
+    views, tilts = rsv.read_log(os.path.join(W1, "imod", ts, "taSolution.log"))
+    angles = rsv.log_angles_for_xml(root, tilts)
+    for i, a in enumerate(angles):
+        if (i + 1) in views:
+            assert a == tilts[i + 1]
+        else:
+            assert a is None  # not in the log -> left unchanged
+
+
+def test_log_angles_sign_matched_to_xml():
+    root = rsv.parse_xml(os.path.join(W1, TS2 + ".xml")).getroot()
+    views, tilts = rsv.read_log(os.path.join(W1, "imod", TS2, "taSolution.log"))
+    flipped = {v: -t for v, t in tilts.items()}
+    assert rsv.log_angles_for_xml(root, flipped) == rsv.log_angles_for_xml(root, tilts)
+
+
+def test_log_angles_reject_unrelated_log():
+    root = rsv.parse_xml(os.path.join(W1, TS2 + ".xml")).getroot()
+    views, tilts = rsv.read_log(os.path.join(W1, "imod", TS2, "taSolution.log"))
+    vals = list(tilts.values())
+    scrambled = dict(zip(tilts, vals[::2] + vals[1::2]))
+    with pytest.raises(ValueError):
+        rsv.log_angles_for_xml(root, scrambled)
+
+
+@pytest.mark.parametrize("delete", [False, True])
+def test_angles_from_log_xml_and_tomostar_match_log(w1, delete):
+    xml = str(w1 / (TS3 + ".xml"))
+    os.makedirs(w1 / "tomostar")
+    tomo = str(w1 / "tomostar" / (TS3 + ".tomostar"))
+    _write_tomostar(rsv.parse_xml(xml).getroot(), tomo)
+    old_angles = rsv.split_lines(rsv.parse_xml(xml).getroot().find("Angles").text)
+    args = ["--xml-dir", str(w1), "--xml-pattern", TS3 + ".xml",
+            "--tiltstack-dir", str(w1 / "imod"), "--tomostar-dir", str(w1 / "tomostar"),
+            "--backup-dir", str(w1 / "bak"), "--angles-from-log"]
+    if delete:
+        args.append("--delete")
+    res = CliRunner().invoke(skipped_views, args)
+    assert res.exit_code == 0, res.output
+    assert "XML tilt angles differ from taSolution.log for 21/37" in res.output
+    assert "check the etomo alignment" in res.output
+    assert os.path.exists(tomo + ".bak")
+
+    views, tilts = rsv.read_log(str(w1 / "imod" / TS3 / "taSolution.log"))
+    orig_bns = rsv.movie_basenames(rsv.parse_xml(
+        str(w1 / "bak" / (TS3 + ".xml")) if not delete else xml + ".bak").getroot(), 37)
+    log_by_bn = {orig_bns[v - 1]: t for v, t in tilts.items()}
+
+    root = rsv.parse_xml(xml).getroot()
+    n = rsv.get_n_tilts(root)
+    assert n == (21 if delete else 37)
+    xml_by_bn = dict(zip(rsv.movie_basenames(root, n),
+                         [float(a) for a in rsv.split_lines(root.find("Angles").text)]))
+    tomo_by_bn = _tomostar_col(tomo, "_wrpAngleTilt")
+    assert tomo_by_bn == xml_by_bn
+    for bn, t in log_by_bn.items():
+        assert xml_by_bn[bn] == t
+    if not delete:  # views not in the log keep their original text
+        new = rsv.split_lines(root.find("Angles").text)
+        assert [new[i] for i in range(37) if (i + 1) not in views] == \
+               [old_angles[i] for i in range(37) if (i + 1) not in views]
+
+
+def test_angles_from_log_is_idempotent(w1):
+    args = ["--xml-dir", str(w1), "--tiltstack-dir", str(w1 / "imod"),
+            "--backup-dir", str(w1 / "bak"), "--tomostar-dir", str(w1 / "none"),
+            "--angles-from-log"]
+    assert CliRunner().invoke(skipped_views, args).exit_code == 0
+    res = CliRunner().invoke(skipped_views, args + ["--dry-run"])
+    assert res.exit_code == 0 and "differ" not in res.output, res.output
+    assert "not found; only the XML is updated" in res.output
+
+
+def test_flip_with_mdoc_also_updates_tomostar(w1):
+    xml = str(w1 / (TS2 + ".xml"))
+    os.makedirs(w1 / "tomostar")
+    tomo = str(w1 / "tomostar" / (TS2 + ".tomostar"))
+    _write_tomostar(rsv.parse_xml(xml).getroot(), tomo)
+    res = CliRunner().invoke(skipped_views, [
+        "--xml-dir", str(w1), "--xml-pattern", TS2 + ".xml",
+        "--tiltstack-dir", str(w1 / "imod"), "--backup-dir", str(w1 / "bak"),
+        "--tomostar-dir", str(w1 / "tomostar"), "--mdoc-dir", str(w1 / "PACE")])
+    assert res.exit_code == 0, res.output
+    root = rsv.parse_xml(xml).getroot()
+    assert _tomostar_col(tomo, "_wrpDose") == pytest.approx(
+        dict(zip(rsv.movie_basenames(root, 37), rsv.parse_dose(root))))

@@ -34,6 +34,7 @@ By turning the UseTilt to False for that view, the shadow goes away:
 - **Delete mode** - Optionally remove excluded tilts outright from the XML and `.tomostar` (`--delete`), with a `--dry-run` preview
 - **Batch processing** - Process multiple XML files with customizable patterns
 - **mdoc doses** - Optionally take per-tilt doses from SerialEM `.mdoc` files (`--mdoc-dir`), overriding the XML/tomostar values with a warning where they differ
+- **etomo tilt angles** - Optionally set the XML and tomostar tilt angles to etomo's refined values from `taSolution.log` (`--angles-from-log`)
 - **Warp 1 and Warp 2** - Reads Warp 1 (UTF-16, CRLF) and Warp 2 (UTF-8) tilt-series XML
 - **Byte-exact XML** - XML round-trips unchanged (encoding, BOM, declaration, line endings and spacing preserved); edits are written atomically
 
@@ -72,6 +73,10 @@ tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir tiltstack --delete --to
 # Warp 1 project (XML like X.mrc.xml, etomo runs in imod/X.mrc/), with doses
 # corrected from the SerialEM mdocs
 tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir imod --mdoc-dir mdocs --dry-run
+
+# ...and also make the XML / tomostar tilt angles match taSolution.log
+tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir imod --mdoc-dir mdocs \
+    --angles-from-log --tomostar-dir tomostar --dry-run
 ```
 
 ### Command Line Options
@@ -88,7 +93,8 @@ tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir imod --mdoc-dir mdocs -
 | `--max-tilt` | 0 | Keep views up to this tilt from the lowest tilt |
 | `--delete` | False | Physically remove excluded tilts from the XML **and** `.tomostar`, instead of flipping `UseTilt` |
 | `--dry-run` | False | Report what would change and write nothing |
-| `--mdoc-dir` | (none) | Directory of SerialEM `.mdoc` files; per-tilt doses from the mdoc override the XML `<Dose>` (and the `.tomostar` `_wrpDose` in delete mode) |
+| `--mdoc-dir` | (none) | Directory of SerialEM `.mdoc` files; per-tilt doses from the mdoc override the XML `<Dose>` and the `.tomostar` `_wrpDose` |
+| `--angles-from-log` | False | Set the tilt angles of the views in `taSolution.log` to etomo's values, in the XML `<Angles>` and the `.tomostar` `_wrpAngleTilt` |
 
 Two modes share the same selection (`--all-true` / `--n-tilts` / `--max-tilt`):
 
@@ -150,13 +156,37 @@ Combines with any mode above:
   tilt gets the **accumulated dose before it**: the sum of `ExposureDose` of
   every earlier tilt (first tilt = 0). This is the convention WarpTools
   `ts_import` writes to `_wrpDose`, using the measured per-tilt exposure.
-- These doses replace the XML `<Dose>` (flip and delete mode) and the
-  `.tomostar` `_wrpDose` column (delete mode). Where the old values differ by
+- These doses replace the XML `<Dose>` and the `.tomostar` `_wrpDose`
+  column (see "Which files are written" below). Where the old values differ by
   more than 0.01 e/Å², a warning summarises how many tilts changed and the
   largest change.
 - `--n-tilts` and `--max-tilt` select using the mdoc doses.
 - If the mdoc is missing, or an XML movie is not in it, that tilt series is
   skipped and left untouched.
+
+### 7. Tilt angles from taSolution.log (`--angles-from-log`)
+Combines with any mode above:
+- Each view in the log (global table) gets etomo's refined `tilt` value:
+  view *k* → XML tilt *k*. Views not in the log keep their angle (they are
+  excluded anyway, and removed with `--delete`).
+- The sign is matched to the existing XML angles (and separately to the
+  tomostar column), so a file stored with the opposite convention is handled.
+- Written to the XML `<Angles>` and the `.tomostar` `_wrpAngleTilt`. A
+  warning summarises how many angles changed and the largest change, plus an
+  extra warning if any change is more than 5° (worth checking the etomo
+  alignment before reconstructing).
+- If the log angles do not follow the XML angles at all (correlation < 0.8),
+  the view numbering cannot belong to this tilt series and the file is left
+  untouched.
+- `taSolution.log` gives angles to 0.1°, so the written values have that
+  precision. Re-running is idempotent (no further changes or warnings).
+
+### Which files are written
+- `--delete`: XML and `.tomostar` (always, as before).
+- Flip mode: the XML; plus the `.tomostar` in `--tomostar-dir` **only when**
+  `--mdoc-dir` or `--angles-from-log` is used and the tomostar exists (it is
+  backed up as `<file>.bak`). If it is missing, a note says only the XML was
+  updated.
 
 > XML is written back **byte-for-byte**: Warp 2 (UTF-8 BOM, declaration,
 > `" />"` spacing) and Warp 1 (UTF-16 with CRLF between elements) are both

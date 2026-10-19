@@ -406,26 +406,129 @@ def format_dose(x):
 
 
 def dose_differences(old, new, tol=DOSE_TOL):
-    """[(index, old, new)] for entries that differ by more than ``tol``."""
+    """[(index, old, new)] for entries that differ by more than ``tol``.
+    Entries whose new value is None (= leave unchanged) are ignored."""
     return [(i, a, b) for i, (a, b) in enumerate(zip(old, new))
-            if abs(a - b) > tol]
+            if b is not None and abs(a - b) > tol]
 
 
 def set_xml_doses(root, doses):
     """Override <Dose> in place; returns the differences vs. the old values."""
-    old = parse_dose(root)
-    root.find("Dose").text = "\n".join(format_dose(d) for d in doses)
-    return dose_differences(old, doses)
+    return set_xml_values(root, "Dose", doses, DOSE_TOL)
 
 
-def dose_warning(label, diffs, n, src, unit="view"):
-    """One-line warning summarising dose differences (or None)."""
+def set_xml_values(root, tag, values, tol):
+    """Override the per-tilt list <tag> in place. ``values[i] is None`` keeps
+    the existing entry verbatim. Returns [(index, old, new)] differences."""
+    el = root.find(tag)
+    lines = split_lines(el.text)
+    old = [float(x) for x in lines]
+    el.text = "\n".join(lines[i] if v is None else format_dose(v)
+                         for i, v in enumerate(values))
+    return dose_differences(old, values, tol)
+
+
+def dose_warning(label, diffs, n, src, unit="view", quantity="doses",
+                 units="e/A^2"):
+    """One-line warning summarising value differences (or None)."""
     if not diffs:
         return None
     worst = max(diffs, key=lambda d: abs(d[1] - d[2]))
-    return (f"WARNING: {label} doses differ from mdoc for {len(diffs)}/{n} tilts "
-            f"(largest: {unit} {worst[0] + 1} {format_dose(worst[1])} -> "
-            f"{format_dose(worst[2])} e/A^2); overriding with {src} values.")
+    return (f"WARNING: {label} {quantity} differ from {src} for {len(diffs)}/{n} "
+            f"tilts (largest: {unit} {worst[0] + 1} {format_dose(worst[1])} -> "
+            f"{format_dose(worst[2])} {units}); overriding with {src} values.")
+
+
+# --------------------------------------------------------------------------- #
+# Tilt angles from taSolution.log (--angles-from-log)
+# --------------------------------------------------------------------------- #
+ANGLE_TOL = 0.005  # deg
+MIN_ANGLE_CORR = 0.8   # below this the log cannot belong to this XML
+LARGE_ANGLE_CHANGE = 5.0  # deg; flag big etomo corrections for a check
+
+
+def _best_sign(old, new):
+    """+1 or -1: the sign that makes ``new`` agree best with ``old``."""
+    plus = sum(abs(a - b) for a, b in zip(old, new))
+    minus = sum(abs(a + b) for a, b in zip(old, new))
+    return -1 if minus < plus else 1
+
+
+def _corr(x, y):
+    n = len(x)
+    mx, my = sum(x) / n, sum(y) / n
+    sxy = sum((a - mx) * (b - my) for a, b in zip(x, y))
+    sxx = sum((a - mx) ** 2 for a in x)
+    syy = sum((b - my) ** 2 for b in y)
+    return sxy / (sxx * syy) ** 0.5 if sxx and syy else 1.0
+
+
+def log_angles_for_xml(root, tilts_in_log):
+    """Per-XML-tilt angles from taSolution.log: ``[angle or None]`` (None for
+    views not in the log, which are left unchanged).
+
+    The sign is matched to the XML's own <Angles> (Warp normally stores them
+    with etomo's sign; AreAnglesInverted is applied by Warp at use time).
+    Raises ValueError if the log does not track the XML angles at all
+    (corr < 0.8), which means view numbers and XML tilts do not line up.
+    """
+    n = get_n_tilts(root)
+    old = [float(a) for a in split_lines(root.find("Angles").text)]
+    idx = [i for i in range(n) if (i + 1) in tilts_in_log]
+    if not idx:
+        raise ValueError("no taSolution.log views match XML tilts")
+    if max(idx) >= n:
+        raise ValueError(f"log has view {max(idx) + 1} but XML has {n} tilts")
+    o = [old[i] for i in idx]
+    t = [tilts_in_log[i + 1] for i in idx]
+    sign = _best_sign(o, t)
+    t = [sign * x for x in t]
+    if len(idx) > 2 and _corr(o, t) < MIN_ANGLE_CORR:
+        raise ValueError("taSolution.log tilts do not follow the XML angles "
+                         "(view numbering mismatch?)")
+    out = [None] * n
+    for i, a in zip(idx, t):
+        out[i] = a
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Overrides: per-tilt values written to the XML and the tomostar.
+# --------------------------------------------------------------------------- #
+class Override:
+    """Per-XML-tilt values (None = keep) for one XML list + tomostar column."""
+
+    def __init__(self, xml_tag, tomostar_col, values, src, quantity, units,
+                 tol, match_tomostar_sign=False):
+        self.xml_tag = xml_tag
+        self.tomostar_col = tomostar_col
+        self.values = values
+        self.src = src
+        self.quantity = quantity
+        self.units = units
+        self.tol = tol
+        self.match_tomostar_sign = match_tomostar_sign
+
+    def warn(self, label, diffs, n, unit="view"):
+        msg = dose_warning(label, diffs, n, self.src, unit=unit,
+                           quantity=self.quantity, units=self.units)
+        if msg and self.xml_tag == "Angles" and label == "XML":
+            big = [d for d in diffs if abs(d[1] - d[2]) > LARGE_ANGLE_CHANGE]
+            if big:
+                msg += (f"\n    WARNING: {len(big)} tilt angles change by more "
+                        f"than {LARGE_ANGLE_CHANGE:g} deg; check the etomo "
+                        "alignment before reconstructing.")
+        return msg
+
+
+def dose_override(doses):
+    return Override("Dose", "_wrpDose", doses, "mdoc", "doses", "e/A^2",
+                    DOSE_TOL)
+
+
+def angle_override(angles):
+    return Override("Angles", "_wrpAngleTilt", angles, "taSolution.log",
+                    "tilt angles", "deg", ANGLE_TOL, match_tomostar_sign=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -632,29 +735,43 @@ def _replace_field(line, col, value):
     return line[:a] + value + line[b:]
 
 
-def set_tomostar_doses(text, xml_basenames, doses):
-    """Write ``doses`` (aligned to ``xml_basenames``) into the ``_wrpDose``
-    column of tomostar ``text``. Rows are matched by movie basename, falling
-    back to row order. Returns (new_text, diffs, warning_or_None)."""
+def set_tomostar_column(text, col, xml_basenames, values, tol=DOSE_TOL,
+                        match_sign=False):
+    """Write ``values`` (aligned to ``xml_basenames``; None = keep) into column
+    ``col`` of tomostar ``text``. Rows are matched by movie basename, falling
+    back to row order. With ``match_sign`` the values' sign is matched to the
+    column's existing values (tomostar and XML may use opposite tilt signs).
+    Returns (new_text, diffs, warning_or_None)."""
     lines, cols, movie_col, data_idx = parse_tomostar_text(text)
-    if "_wrpDose" not in cols:
-        return text, [], "tomostar has no _wrpDose column; doses not written"
-    dose_col = cols.index("_wrpDose")
-    if len(data_idx) != len(doses):
-        raise ValueError(f"tomostar has {len(data_idx)} rows, expected {len(doses)}")
-    by_name = dict(zip(xml_basenames, doses))
+    if col not in cols:
+        return text, [], f"tomostar has no {col} column; not written"
+    c = cols.index(col)
+    if len(data_idx) != len(values):
+        raise ValueError(f"tomostar has {len(data_idx)} rows, expected {len(values)}")
+    by_name = dict(zip(xml_basenames, values))
     row_bn = [os.path.basename(lines[i].split()[movie_col]) for i in data_idx]
     warning = None
     if set(row_bn) == set(by_name) and len(set(row_bn)) == len(row_bn):
-        row_doses = [by_name[bn] for bn in row_bn]
+        row_vals = [by_name[bn] for bn in row_bn]
     else:
         warning = ("movie names could not be matched to tomostar rows; "
-                   "doses written in row order")
-        row_doses = list(doses)
-    old = [float(lines[i].split()[dose_col]) for i in data_idx]
-    for i, d in zip(data_idx, row_doses):
-        lines[i] = _replace_field(lines[i], dose_col, format_dose(d))
-    return "\n".join(lines), dose_differences(old, row_doses), warning
+                   f"{col} written in row order")
+        row_vals = list(values)
+    old = [float(lines[i].split()[c]) for i in data_idx]
+    if match_sign:
+        pairs = [(o, v) for o, v in zip(old, row_vals) if v is not None]
+        if pairs:
+            sign = _best_sign([p[0] for p in pairs], [p[1] for p in pairs])
+            row_vals = [None if v is None else sign * v for v in row_vals]
+    for i, v in zip(data_idx, row_vals):
+        if v is not None:
+            lines[i] = _replace_field(lines[i], c, format_dose(v))
+    return "\n".join(lines), dose_differences(old, row_vals, tol), warning
+
+
+def set_tomostar_doses(text, xml_basenames, doses):
+    """Write doses into ``_wrpDose`` (see set_tomostar_column)."""
+    return set_tomostar_column(text, "_wrpDose", xml_basenames, doses)
 
 
 # --------------------------------------------------------------------------- #
@@ -676,11 +793,47 @@ def _echo_dose_warnings(warnings):
             click.echo(f"    {w}")
 
 
-def handle_flip(xml_file, backup_dir, mask, dry_run, mdoc_doses=None):
+def _collect_overrides(overrides, mdoc_doses):
+    out = list(overrides or [])
+    if mdoc_doses is not None:
+        out.append(dose_override(mdoc_doses))
+    return out
+
+
+def apply_overrides_xml(root, overrides):
+    """Apply every override to the (still full-length) XML; return messages."""
+    n = get_n_tilts(root)
+    msgs = []
+    for ov in overrides:
+        diffs = set_xml_values(root, ov.xml_tag, ov.values, ov.tol)
+        msgs.append(ov.warn("XML", diffs, n))
+    return msgs
+
+
+def apply_overrides_tomostar(text, overrides, basenames, keep):
+    """Apply overrides to tomostar ``text`` whose rows are the XML tilts
+    ``keep`` (indices). Returns (new_text, messages)."""
+    msgs = []
+    for ov in overrides:
+        text, diffs, warn = set_tomostar_column(
+            text, ov.tomostar_col, [basenames[i] for i in keep],
+            [ov.values[i] for i in keep], ov.tol,
+            match_sign=ov.match_tomostar_sign)
+        msgs.append(ov.warn("tomostar", diffs, len(keep), unit="row"))
+        if warn:
+            msgs.append(f"WARNING: {warn}")
+    return text, msgs
+
+
+def handle_flip(xml_file, backup_dir, mask, dry_run, mdoc_doses=None,
+                overrides=None, tomostar_dir=None):
     """Flip mode: rewrite UseTilt to True/False from the keep-mask.
 
-    With ``mdoc_doses`` (per-XML-tilt list), <Dose> is overridden as well.
+    ``overrides`` (doses from mdoc, angles from taSolution.log) are written to
+    the XML and, if it exists in ``tomostar_dir``, to the matching .tomostar
+    (all rows; flip mode removes nothing).
     """
+    overrides = _collect_overrides(overrides, mdoc_doses)
     tree = parse_xml(xml_file)
     root = tree.getroot()
     n = get_n_tilts(root)
@@ -692,22 +845,42 @@ def handle_flip(xml_file, backup_dir, mask, dry_run, mdoc_doses=None):
         click.echo(f"{xml_file}: WARNING: selection excludes all {n} tilts "
                    "(check the taSolution.log / options).")
 
-    dose_msg = None
-    if mdoc_doses is not None:
-        diffs = set_xml_doses(root, mdoc_doses)
-        dose_msg = dose_warning("XML", diffs, n, "mdoc")
+    msgs = apply_overrides_xml(root, overrides)
+
+    tomostar_file, new_tomostar = None, None
+    if overrides and tomostar_dir is not None:
+        tomostar_file = find_tomostar(tomostar_dir, xml_file)
+        if os.path.exists(tomostar_file):
+            with open(tomostar_file, "r", encoding="utf-8", newline="") as fh:
+                text = fh.read()
+            try:
+                new_tomostar, ts_msgs = apply_overrides_tomostar(
+                    text, overrides, movie_basenames(root, n), list(range(n)))
+                msgs += ts_msgs
+            except ValueError as exc:
+                msgs.append(f"WARNING: {os.path.basename(tomostar_file)}: {exc}; "
+                            "tomostar not updated, only the XML.")
+                tomostar_file = None
+        else:
+            msgs.append(f"note: {tomostar_file} not found; only the XML is updated.")
+            tomostar_file = None
 
     if dry_run:
         click.echo(f"{xml_file}: [dry-run] would change {changes} UseTilt values "
                    f"({sum(mask)} of {n} tilts kept).")
-        _echo_dose_warnings([dose_msg])
+        _echo_dose_warnings(msgs)
         return
 
     backup = make_backup(xml_file, os.path.join(backup_dir, os.path.basename(xml_file)))
     root.find("UseTilt").text = "\n".join(updated)
     atomic_write_bytes(xml_file, serialize_xml(tree))
-    click.echo(f"{xml_file}: {changes} changes made to UseTilt (backup: {backup}).")
-    _echo_dose_warnings([dose_msg])
+    extra = ""
+    if tomostar_file is not None:
+        ts_bak = make_backup(tomostar_file, tomostar_file + ".bak")
+        atomic_write_bytes(tomostar_file, new_tomostar.encode("utf-8"))
+        extra = f"; tomostar updated (backup: {ts_bak})"
+    click.echo(f"{xml_file}: {changes} changes made to UseTilt (backup: {backup}){extra}.")
+    _echo_dose_warnings(msgs)
 
 
 def find_tomostar(tomostar_dir, xml_file):
@@ -723,12 +896,13 @@ def find_tomostar(tomostar_dir, xml_file):
 
 
 def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
-                  mdoc_doses=None):
+                  mdoc_doses=None, overrides=None):
     """Physically remove excluded tilts from the XML and its .tomostar.
 
-    With ``mdoc_doses`` (per-XML-tilt list), the surviving tilts' doses are
-    overridden in both the XML <Dose> and the tomostar ``_wrpDose`` column.
+    ``overrides`` (doses from mdoc, angles from taSolution.log) are written to
+    the surviving tilts in both the XML and the tomostar.
     """
+    overrides = _collect_overrides(overrides, mdoc_doses)
     tomostar_file = find_tomostar(tomostar_dir, xml_file)
 
     tree = parse_xml(xml_file)
@@ -736,7 +910,7 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
     n = get_n_tilts(root)
     deleted = {i for i, keep in enumerate(mask) if not keep}
 
-    if not deleted and mdoc_doses is None:
+    if not deleted and not overrides:
         click.echo(f"{xml_file}: nothing to delete (all {n} tilts kept).")
         return
     if len(deleted) == n:
@@ -763,17 +937,10 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
         new_tomostar, warning, remaining_rows = delete_tomostar_rows(
             tomostar_file, deleted, xml_bns, n
         )
-        dose_msgs = []
-        if mdoc_doses is not None:
-            keep = [i for i in range(n) if i not in deleted]
-            new_tomostar, ts_diffs, ts_warn = set_tomostar_doses(
-                new_tomostar, [xml_bns[i] for i in keep],
-                [mdoc_doses[i] for i in keep])
-            xml_diffs = set_xml_doses(root, mdoc_doses)
-            dose_msgs = [dose_warning("XML", xml_diffs, n, "mdoc"),
-                         dose_warning("tomostar", ts_diffs, len(keep), "mdoc",
-                                      unit="row"),
-                         f"WARNING: {ts_warn}" if ts_warn else None]
+        keep = [i for i in range(n) if i not in deleted]
+        new_tomostar, ts_msgs = apply_overrides_tomostar(
+            new_tomostar, overrides, xml_bns, keep)
+        msgs = apply_overrides_xml(root, overrides) + ts_msgs
     except ValueError as exc:
         click.echo(f"{xml_file}: ABORT ({exc}).")
         return
@@ -788,10 +955,10 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
                 click.echo(line)
         else:
             click.echo(f"{xml_file}: [dry-run] nothing to delete (all {n} tilts "
-                       "kept); would update doses from mdoc.")
+                       "kept); would update the XML and tomostar values.")
         if warning:
             click.echo(f"    WARNING: {warning}")
-        _echo_dose_warnings(dose_msgs)
+        _echo_dose_warnings(msgs)
         return
 
     m = delete_tilts_in_xml(root, n, deleted) if deleted else n
@@ -810,7 +977,7 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
     )
     if warning:
         click.echo(f"    WARNING: {warning}")
-    _echo_dose_warnings(dose_msgs)
+    _echo_dose_warnings(msgs)
 
 
 # --------------------------------------------------------------------------- #
@@ -818,13 +985,15 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
 # --------------------------------------------------------------------------- #
 def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
                       tomostar_dir, all_true, n_tilts, max_tilt, do_delete,
-                      dry_run, mdoc_dir=None):
+                      dry_run, mdoc_dir=None, angles_from_log=False):
     """Process all matching XML files in flip mode or (with ``do_delete``)
     delete mode. Messaging goes through ``click.echo``.
 
     With ``mdoc_dir``, per-tilt doses are taken from each series' mdoc
-    (accumulated ExposureDose in acquisition order), used for --n-tilts /
-    --max-tilt selection, and written to the XML (and tomostar in delete mode).
+    (accumulated ExposureDose in acquisition order) and used for --n-tilts /
+    --max-tilt selection. With ``angles_from_log``, tilt angles of the views in
+    taSolution.log are set to etomo's refined values. Both are written to the
+    XML and the matching .tomostar.
     """
     if do_delete and all_true:
         raise click.UsageError(
@@ -860,16 +1029,18 @@ def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
             os.path.splitext(os.path.basename(xml_file))[0], "taSolution.log"
         )
         views_in_log, tilts_in_log = set(), {}
-        if not all_true:
+        if not all_true or angles_from_log:
             log = read_log(log_path)
             if log is None:
                 click.echo(f"Log file {log_path} not found or empty, skipping {xml_file}.")
                 continue
             views_in_log, tilts_in_log = log
+            if all_true:
+                views_in_log = set()
 
         root = parse_xml(xml_file).getroot()
+        overrides = []
 
-        mdoc_doses = None
         if mdoc_dir is not None:
             mdoc_path = find_mdoc(mdoc_dir, xml_file)
             if mdoc_path is None:
@@ -882,15 +1053,24 @@ def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
                 click.echo(f"{xml_file}: ABORT (mdoc {mdoc_path}: {exc}). "
                            "Left untouched.")
                 continue
+            overrides.append(dose_override(mdoc_doses))
             # Select with the corrected doses.
             root.find("Dose").text = "\n".join(format_dose(d) for d in mdoc_doses)
+
+        if angles_from_log:
+            try:
+                overrides.append(angle_override(
+                    log_angles_for_xml(root, tilts_in_log)))
+            except ValueError as exc:
+                click.echo(f"{xml_file}: ABORT ({log_path}: {exc}). Left untouched.")
+                continue
 
         mask = compute_keep_mask(root, views_in_log, tilts_in_log, all_true,
                                  n_tilts, max_tilt)
 
         if do_delete:
             handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
-                          mdoc_doses=mdoc_doses)
+                          overrides=overrides)
         else:
             handle_flip(xml_file, backup_dir, mask, dry_run,
-                        mdoc_doses=mdoc_doses)
+                        overrides=overrides, tomostar_dir=tomostar_dir)

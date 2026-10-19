@@ -40,11 +40,16 @@ from .core import process_xml_files
               type=click.Path(exists=True, file_okay=False),
               help='Directory of SerialEM .mdoc files. If given, per-tilt doses '
                    '(accumulated ExposureDose in acquisition order) override the '
-                   'XML <Dose> (and the .tomostar _wrpDose in delete mode), with '
+                   'XML <Dose> and the .tomostar _wrpDose, with '
                    'a warning where they differ. Also used for --n-tilts / '
                    '--max-tilt selection.')
+@click.option('--angles-from-log', is_flag=True, default=False,
+              help='Set the tilt angles of the views in taSolution.log to '
+                   "etomo's refined values, in the XML <Angles> and the "
+                   '.tomostar _wrpAngleTilt, with a warning where they differ.')
 def skipped_views(xml_dir, xml_pattern, backup_dir, tiltstack_dir, tomostar_dir,
-                  all_true, n_tilts, max_tilt, do_delete, dry_run, mdoc_dir):
+                  all_true, n_tilts, max_tilt, do_delete, dry_run, mdoc_dir,
+                  angles_from_log):
     """Prune skipped etomo views from WarpTools tilt-series XML files.
 
     By default (flip mode) this updates UseTilt True/False from taSolution.log;
@@ -52,17 +57,20 @@ def skipped_views(xml_dir, xml_pattern, backup_dir, tiltstack_dir, tomostar_dir,
     the matching .tomostar file. Selection supports dose-based (--n-tilts),
     tilt-angle-based (--max-tilt), or reset-all (--all-true). Originals are
     backed up first; use --dry-run to preview. Works on Warp 2 (UTF-8) and
-    Warp 1 (UTF-16) XML. With --mdoc-dir, doses are corrected from the mdocs.
+    Warp 1 (UTF-16) XML. With --mdoc-dir, doses are corrected from the mdocs;
+    with --angles-from-log, tilt angles are set to etomo's refined values.
 
     \b
     examples:
       tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir tiltstack
       tomo_toolshed skipped-views --delete --tomostar-dir ../tomostar --dry-run
-      tomo_toolshed skipped-views --tiltstack-dir imod --mdoc-dir mdocs --dry-run
+      tomo_toolshed skipped-views --tiltstack-dir imod --mdoc-dir mdocs \\
+          --angles-from-log --tomostar-dir tomostar --dry-run
     """
     process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
                       tomostar_dir, all_true, n_tilts, max_tilt, do_delete,
-                      dry_run, mdoc_dir=mdoc_dir)
+                      dry_run, mdoc_dir=mdoc_dir,
+                      angles_from_log=angles_from_log)
 
 
 if __name__ == '__main__':

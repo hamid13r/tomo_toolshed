@@ -28,6 +28,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   them to the XML `<Dose>` and, in `--delete` mode, the `.tomostar` `_wrpDose`
   column, warning where the old values differ. The mdoc doses are also used by
   `--n-tilts` / `--max-tilt`.
+- **skipped-views**: `--angles-from-log` sets the tilt angles of the views in
+  `taSolution.log` to etomo's refined values in the XML `<Angles>` and the
+  `.tomostar` `_wrpAngleTilt` (sign matched to the file), warning where they
+  differ and flagging changes over 5°.
+- **skipped-views**: in flip mode, `--mdoc-dir` / `--angles-from-log` also
+  update the `.tomostar` in `--tomostar-dir` when it exists (backed up first).
 
 ### Changed
 
