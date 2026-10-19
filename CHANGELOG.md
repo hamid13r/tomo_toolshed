@@ -21,6 +21,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `--no-highpass`, `--no-local-motion`, `--threads`.
 - **compare-tomograms**: FSC / Pearson / power-spectrum comparison against a
   reference tomogram (was `compare_tomograms.py` upstream).
+- **skipped-views**: Warp 1 support — UTF-16 / CRLF tilt-series XML (e.g.
+  `X.mrc.xml`) is read and written back byte-for-byte.
+- **skipped-views**: `--mdoc-dir` takes per-tilt doses from SerialEM mdocs
+  (accumulated `ExposureDose` in acquisition order, first tilt = 0) and writes
+  them to the XML `<Dose>` and, in `--delete` mode, the `.tomostar` `_wrpDose`
+  column, warning where the old values differ. The mdoc doses are also used by
+  `--n-tilts` / `--max-tilt`.
 
 ### Changed
 
@@ -29,6 +36,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the main source of excess high-frequency noise vs Warp). A sub-pixel patch
   shift sign bug in the Fourier engine is fixed. Output tomograms differ from
   0.1.0 as a result (closer to `ts_reconstruct`).
+
+### Fixed
+
+- **skipped-views**: a `taSolution.log` with several solution tables (etomo
+  local alignments) made every view look absent, so all tilts were excluded.
+  Only the first (global) table is used now.
+- **skipped-views**: `--max-tilt` looked up log tilt angles by list position
+  instead of view number, picking the wrong angles whenever the log does not
+  start at view 1.
+- **skipped-views**: `--delete` refuses to remove every tilt of a series, and
+  flip mode warns if the selection excludes all tilts. A flip-mode `--dry-run`
+  no longer creates the backup directory. CRLF `.tomostar` files keep their
+  line endings.
 
 ## [0.1.0] - 2026-10-05
 

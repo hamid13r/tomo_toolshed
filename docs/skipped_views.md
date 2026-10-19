@@ -33,7 +33,9 @@ By turning the UseTilt to False for that view, the shadow goes away:
 - **Tilt-based selection** - Option to keep only until a certain amount of tilt from the first view
 - **Delete mode** - Optionally remove excluded tilts outright from the XML and `.tomostar` (`--delete`), with a `--dry-run` preview
 - **Batch processing** - Process multiple XML files with customizable patterns
-- **Byte-exact XML** - Warp 2 XML round-trips unchanged (BOM/declaration/spacing preserved); edits are written atomically
+- **mdoc doses** - Optionally take per-tilt doses from SerialEM `.mdoc` files (`--mdoc-dir`), overriding the XML/tomostar values with a warning where they differ
+- **Warp 1 and Warp 2** - Reads Warp 1 (UTF-16, CRLF) and Warp 2 (UTF-8) tilt-series XML
+- **Byte-exact XML** - XML round-trips unchanged (encoding, BOM, declaration, line endings and spacing preserved); edits are written atomically
 
 ## Installation
 
@@ -66,6 +68,10 @@ tomo_toolshed skipped-views --xml-dir ./ --xml-pattern "*.xml" --backup-dir back
 # matching .tomostar (preview first with --dry-run)
 tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir tiltstack --delete --tomostar-dir ../tomostar --dry-run
 tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir tiltstack --delete --tomostar-dir ../tomostar
+
+# Warp 1 project (XML like X.mrc.xml, etomo runs in imod/X.mrc/), with doses
+# corrected from the SerialEM mdocs
+tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir imod --mdoc-dir mdocs --dry-run
 ```
 
 ### Command Line Options
@@ -82,6 +88,7 @@ tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir tiltstack --delete --to
 | `--max-tilt` | 0 | Keep views up to this tilt from the lowest tilt |
 | `--delete` | False | Physically remove excluded tilts from the XML **and** `.tomostar`, instead of flipping `UseTilt` |
 | `--dry-run` | False | Report what would change and write nothing |
+| `--mdoc-dir` | (none) | Directory of SerialEM `.mdoc` files; per-tilt doses from the mdoc override the XML `<Dose>` (and the `.tomostar` `_wrpDose` in delete mode) |
 
 Two modes share the same selection (`--all-true` / `--n-tilts` / `--max-tilt`):
 
@@ -98,9 +105,13 @@ When `--n-tilts 0` (default):
 - Views present in `taSolution.log` → `UseTilt = True`
 - Views not in log → `UseTilt = False`
 
+If etomo local alignments were used, `taSolution.log` contains the global
+solution table followed by one table per local area. Only the first (global)
+table is read.
+
 ### 2. Dose-based Selection
 When `--n-tilts > 0`:
-- Sorts tilts by dose values from XML
+- Sorts tilts by dose values from XML (or from the mdoc with `--mdoc-dir`)
 - Sets the N lowest-dose tilts to `True`
 - Sets remaining tilts to `False`
 - **Note**: Views not in taSolution.log are always set to `False`
@@ -130,8 +141,26 @@ When `--delete`:
   WarpTools steps (`ts_ctf`, `ts_aretomo`, `ts_reconstruct`) since the tilt
   count changed. Preview with `--dry-run` first.
 
-> Warp 2 XML is written back **byte-for-byte** (UTF-8 BOM, declaration, and
-> `" />"` spacing preserved), so an unedited file is unchanged on disk.
+### 6. Doses from mdoc (`--mdoc-dir`)
+Combines with any mode above:
+- For each XML, the mdoc is looked up as `<xml name without .xml>.mdoc`
+  (e.g. `X.mrc.xml` → `X.mrc.mdoc`), then `X.mdoc` / `X.mrc.mdoc`.
+- Tilts are matched to mdoc sections by movie name (`SubFramePath`), put in
+  acquisition order (`TimeStamp`, else `DateTime`, else `ZValue`), and each
+  tilt gets the **accumulated dose before it**: the sum of `ExposureDose` of
+  every earlier tilt (first tilt = 0). This is the convention WarpTools
+  `ts_import` writes to `_wrpDose`, using the measured per-tilt exposure.
+- These doses replace the XML `<Dose>` (flip and delete mode) and the
+  `.tomostar` `_wrpDose` column (delete mode). Where the old values differ by
+  more than 0.01 e/Å², a warning summarises how many tilts changed and the
+  largest change.
+- `--n-tilts` and `--max-tilt` select using the mdoc doses.
+- If the mdoc is missing, or an XML movie is not in it, that tilt series is
+  skipped and left untouched.
+
+> XML is written back **byte-for-byte**: Warp 2 (UTF-8 BOM, declaration,
+> `" />"` spacing) and Warp 1 (UTF-16 with CRLF between elements) are both
+> preserved, so an unedited file is unchanged on disk.
 
 ## Expected Directory Structure
 
@@ -144,8 +173,20 @@ warp_tiltseries/
         └── taSolution.log          # each TS done in etomo gets a taSolution.log
 ```
 
+Warp 1 projects look like this (pass `--tiltstack-dir imod --mdoc-dir mdocs`):
+
+```
+project/
+├── X.mrc.xml                      # Warp 1 tilt-series XML (UTF-16)
+├── imod/
+│   └── X.mrc/
+│       └── taSolution.log
+└── mdocs/
+    └── X.mrc.mdoc                 # SerialEM / PACE-tomo mdoc
+```
+
 ## Acknowledgments
 
-- Designed for [WARP2.0](https://github.com/warpem/warp) cryo-electron tomography workflows
+- Designed for [Warp](https://github.com/warpem/warp) (Warp 1 and WarpTools 2) cryo-electron tomography workflows
 - Built with pandas, click, and lxml
 - Thanks to Alister Burt and Dimitry Tegunov for the support

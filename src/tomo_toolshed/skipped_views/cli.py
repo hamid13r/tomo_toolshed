@@ -36,24 +36,33 @@ from .core import process_xml_files
                    'instead of setting UseTilt=False')
 @click.option('--dry-run', is_flag=True, default=False,
               help='Report what would change and write nothing')
+@click.option('--mdoc-dir', default=None,
+              type=click.Path(exists=True, file_okay=False),
+              help='Directory of SerialEM .mdoc files. If given, per-tilt doses '
+                   '(accumulated ExposureDose in acquisition order) override the '
+                   'XML <Dose> (and the .tomostar _wrpDose in delete mode), with '
+                   'a warning where they differ. Also used for --n-tilts / '
+                   '--max-tilt selection.')
 def skipped_views(xml_dir, xml_pattern, backup_dir, tiltstack_dir, tomostar_dir,
-                  all_true, n_tilts, max_tilt, do_delete, dry_run):
+                  all_true, n_tilts, max_tilt, do_delete, dry_run, mdoc_dir):
     """Prune skipped etomo views from WarpTools tilt-series XML files.
 
     By default (flip mode) this updates UseTilt True/False from taSolution.log;
     with --delete it physically removes the excluded tilts from both the XML and
     the matching .tomostar file. Selection supports dose-based (--n-tilts),
     tilt-angle-based (--max-tilt), or reset-all (--all-true). Originals are
-    backed up first; use --dry-run to preview.
+    backed up first; use --dry-run to preview. Works on Warp 2 (UTF-8) and
+    Warp 1 (UTF-16) XML. With --mdoc-dir, doses are corrected from the mdocs.
 
     \b
     examples:
       tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir tiltstack
       tomo_toolshed skipped-views --delete --tomostar-dir ../tomostar --dry-run
+      tomo_toolshed skipped-views --tiltstack-dir imod --mdoc-dir mdocs --dry-run
     """
     process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
                       tomostar_dir, all_true, n_tilts, max_tilt, do_delete,
-                      dry_run)
+                      dry_run, mdoc_dir=mdoc_dir)
 
 
 if __name__ == '__main__':
