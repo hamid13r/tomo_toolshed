@@ -45,6 +45,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **skipped-views**: re-running on a tilt series that `--delete` had already
+  trimmed removed more tilts from the start of the series (the log's view
+  numbers no longer lined up with the shorter XML). View numbers are now
+  mapped through the first backup `<xml>.bak` by movie name, so a repeat
+  `--delete` removes nothing and later selections use the original numbering.
+
 - **skipped-views**: a `taSolution.log` with several solution tables (etomo
   local alignments) made every view look absent, so all tilts were excluded.
   Only the first (global) table is used now.

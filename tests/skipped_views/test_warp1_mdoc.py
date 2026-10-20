@@ -288,3 +288,91 @@ def test_flip_with_mdoc_also_updates_tomostar(w1):
     root = rsv.parse_xml(xml).getroot()
     assert _tomostar_col(tomo, "_wrpDose") == pytest.approx(
         dict(zip(rsv.movie_basenames(root, 37), rsv.parse_dose(root))))
+
+
+# --------------------------------------------------------------------------- #
+# Re-running after --delete (view numbers must keep referring to the original)
+# --------------------------------------------------------------------------- #
+def _delete_args(w1, ts, *extra):
+    return ["--xml-dir", str(w1), "--xml-pattern", ts + ".xml",
+            "--tiltstack-dir", str(w1 / "imod"),
+            "--tomostar-dir", str(w1 / "tomostar"), "--delete", *extra]
+
+
+def _kept(xml):
+    root = rsv.parse_xml(xml).getroot()
+    return rsv.movie_basenames(root, rsv.get_n_tilts(root))
+
+
+@pytest.mark.parametrize("ts", [TS2, TS3])
+def test_second_delete_removes_nothing(w1, ts):
+    """Regression: a 2nd --delete used to strip more tilts off the START only
+    (log views no longer lined up with the trimmed XML)."""
+    xml = str(w1 / (ts + ".xml"))
+    os.makedirs(w1 / "tomostar")
+    _write_tomostar(rsv.parse_xml(xml).getroot(), str(w1 / "tomostar" / (ts + ".tomostar")))
+    orig = _kept(xml)
+    views, _ = rsv.read_log(str(w1 / "imod" / ts / "taSolution.log"))
+    expected = [orig[v - 1] for v in sorted(views)]
+
+    r1 = CliRunner().invoke(skipped_views, _delete_args(w1, ts))
+    assert r1.exit_code == 0, r1.output
+    assert _kept(xml) == expected  # both ends trimmed
+
+    r2 = CliRunner().invoke(skipped_views, _delete_args(w1, ts))
+    assert r2.exit_code == 0, r2.output
+    assert "already removed" in r2.output and "nothing to delete" in r2.output
+    assert _kept(xml) == expected
+
+
+def test_selection_after_delete_matches_single_run(w1):
+    """--max-tilt after a plain --delete == --max-tilt on the untouched XML."""
+    xml = str(w1 / (TS2 + ".xml"))
+    os.makedirs(w1 / "tomostar")
+    tomo = str(w1 / "tomostar" / (TS2 + ".tomostar"))
+    _write_tomostar(rsv.parse_xml(xml).getroot(), tomo)
+    shutil.copy(xml, str(w1 / "orig.xml"))
+    shutil.copy(tomo, str(w1 / "orig.tomostar"))
+
+    assert CliRunner().invoke(skipped_views, _delete_args(
+        w1, TS2, "--max-tilt", "20")).exit_code == 0
+    one_step = _kept(xml)
+
+    shutil.copy(str(w1 / "orig.xml"), xml)
+    shutil.copy(str(w1 / "orig.tomostar"), tomo)
+    for f in os.listdir(w1):
+        if ".bak" in f:
+            os.remove(w1 / f)
+    for f in os.listdir(w1 / "tomostar"):
+        if ".bak" in f:
+            os.remove(w1 / "tomostar" / f)
+    assert CliRunner().invoke(skipped_views, _delete_args(w1, TS2)).exit_code == 0
+    res = CliRunner().invoke(skipped_views, _delete_args(w1, TS2, "--max-tilt", "20"))
+    assert res.exit_code == 0, res.output
+    assert _kept(xml) == one_step
+    assert os.path.exists(xml + ".bak.1")  # original .bak kept intact
+
+
+def test_flip_after_delete_keeps_all_remaining(w1):
+    xml = str(w1 / (TS3 + ".xml"))
+    os.makedirs(w1 / "tomostar")
+    _write_tomostar(rsv.parse_xml(xml).getroot(), str(w1 / "tomostar" / (TS3 + ".tomostar")))
+    assert CliRunner().invoke(skipped_views, _delete_args(w1, TS3)).exit_code == 0
+    res = CliRunner().invoke(skipped_views, [
+        "--xml-dir", str(w1), "--xml-pattern", TS3 + ".xml",
+        "--tiltstack-dir", str(w1 / "imod"), "--backup-dir", str(w1 / "bak")])
+    assert res.exit_code == 0, res.output
+    ut = rsv.split_lines(rsv.parse_xml(xml).getroot().find("UseTilt").text)
+    assert ut == ["True"] * 21
+
+
+def test_stale_bak_with_foreign_tilts_aborts(w1):
+    xml = str(w1 / (TS2 + ".xml"))
+    shutil.copy(str(w1 / (TS3 + ".xml")), xml + ".bak")  # wrong series
+    before = open(xml, "rb").read()
+    res = CliRunner().invoke(skipped_views, [
+        "--xml-dir", str(w1), "--xml-pattern", TS2 + ".xml",
+        "--tiltstack-dir", str(w1 / "imod"), "--backup-dir", str(w1 / "bak")])
+    assert res.exit_code == 0
+    assert "ABORT" in res.output and "stale .bak" in res.output
+    assert open(xml, "rb").read() == before

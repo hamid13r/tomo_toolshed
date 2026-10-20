@@ -141,11 +141,19 @@ When `--delete`:
   per-tilt structure is inconsistent, or the tomostar row count does not match,
   the series is **left untouched**.
 - Backups are versioned (`<file>.bak`, `.bak.1`, …) next to each file.
-- **Not idempotent:** once tilts are removed, `taSolution.log` view numbers no
-  longer line up with the XML, so re-running would delete the *wrong* tilts.
-  Restore from the `.bak` files before re-running, and re-run downstream
-  WarpTools steps (`ts_ctf`, `ts_aretomo`, `ts_reconstruct`) since the tilt
-  count changed. Preview with `--dry-run` first.
+- **Safe to re-run, as long as you keep `<xml>.bak`.** `taSolution.log`
+  view numbers refer to the original tilt series. After a delete, the first
+  backup (`<xml>.bak`) still has that original order, so on any later run
+  (delete or flip) the views are mapped through it by movie name. A second
+  identical `--delete` removes nothing, and e.g. a later `--max-tilt` gives
+  the same result as running it on the untouched XML. Later backups go to
+  `.bak.1`, `.bak.2`, … so `.bak` stays the original.
+  Without `.bak`, a re-run on an already-trimmed XML would number the views
+  wrong (extra tilts lost from the start of the series). If `.bak` holds tilts
+  from a different series, the file is left untouched with an error.
+- Re-run downstream WarpTools steps (`ts_ctf`, `ts_aretomo`,
+  `ts_reconstruct`) since the tilt count changed. Preview with `--dry-run`
+  first.
 
 ### 6. Doses from mdoc (`--mdoc-dir`)
 Combines with any mode above:
