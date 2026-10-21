@@ -45,6 +45,7 @@ pip install -e .
 | `tomo_toolshed filament-cleanup` | After RELION helical refinement, remove particles that sit off a smooth curve through their filament or whose tilt/psi axis disagrees with their neighbours; writes the cleaned star file plus a star file of the removed particles for inspection. | [docs/filament_cleanup.md](docs/filament_cleanup.md) |
 | `tomo_toolshed xml-reconstruct` | Reconstruct a tomogram from a Warp/WarpTools tilt-series XML with one of three engines: a NumPy/SciPy re-implementation of `ts_reconstruct` (default), IMOD `tilt` WBP/SIRT (`--engine etomo`), or novaCTF 3D-CTF on Warp's full geometry (`--engine novactf`, optional GPU). Swappable weighting and filtering hooks for making new versions of a tomogram from the same aligned tilts. | [docs/xml_reconstruct.md](docs/xml_reconstruct.md) |
 | `tomo_toolshed compare-tomograms` | Compare reconstructions against a reference tomogram: FSC, Pearson correlation, power spectra and an axis-flip/sign search, with plots and a JSON summary. | [docs/xml_reconstruct.md#compare-tomograms](docs/xml_reconstruct.md#compare-tomograms) |
+| `tomo_toolshed vtp-normals` | Preview, curate and flip the normals of pycurv/morphometrics `.vtp` membrane surfaces. The surface is split into connected pieces, each split again where a cell array (default `OMM_dist`) crosses a threshold; `preview` writes per-piece PNGs, `curate` is an interactive 3D curator, and `flip` batch-flips chosen pieces into `.flipped.vtp` (reversed winding, negated normals and curvatures). | [docs/vtp_normals.md](docs/vtp_normals.md) |
 
 ## Development
 
@@ -99,6 +100,9 @@ Interoperates with / builds on:
   helical / oriented-particle tools (RELION 4.x).
 - [IsoNet](https://github.com/IsoNet-cryoET/IsoNet) — `add-defocus` fills IsoNet
   star files.
+- [pycurv](https://github.com/kalemaria/pycurv) / morphometrics — `vtp-normals`
+  reads, splits and re-writes the pycurv membrane surface `.vtp` files
+  (vector-voting normals and curvatures).
 
 Built on these Python libraries: [mrcfile](https://github.com/ccpem/mrcfile),
 [starfile](https://github.com/teamtomo/starfile),
@@ -107,8 +111,8 @@ Built on these Python libraries: [mrcfile](https://github.com/ccpem/mrcfile),
 [Click](https://click.palletsprojects.com/),
 [NetworkX](https://networkx.org/),
 [connected-components-3d](https://github.com/seung-lab/connected-components-3d),
-[Matplotlib](https://matplotlib.org/), [Pillow](https://python-pillow.org/), and
-[lxml](https://lxml.de/).
+[Matplotlib](https://matplotlib.org/), [Pillow](https://python-pillow.org/),
+[VTK](https://vtk.org/), and [lxml](https://lxml.de/).
 
 ## License
 

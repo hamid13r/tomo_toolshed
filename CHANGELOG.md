@@ -8,6 +8,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **vtp-normals**: new tool (click group with three subcommands) to preview,
+  curate and flip the normals of pycurv/morphometrics `.vtp` membrane surfaces.
+  The surface is split into connected pieces, each split again where a cell
+  array crosses a threshold (`--split-column`, default `OMM_dist`, at
+  `--split-dist`, default 20 nm; small parts merged, pieces numbered largest
+  first).
+  - `vtp-normals preview`: per-piece `<name>.normals.png` panels (membrane
+    points, normal tips, tomogram background).
+  - `vtp-normals curate`: interactive 3-orthoslice curator with a piece table;
+    mark pieces, write `<name>.flipped.vtp`, then review.
+  - `vtp-normals flip`: batch-flip listed `TS:MEMBRANE:IDS` pieces (or
+    `--flip-file`) into `<name>.flipped.vtp` with reversed winding, negated
+    normal arrays, curvature negate/swap rules, and `piece_id` /
+    `normal_flipped` cell arrays.
+  - `--split-column` generalizes the previously hard-coded `OMM_dist`; it must
+    match between `preview`/`curate` and `flip` (with `--split-dist` and
+    `--min-triangles`) or piece ids will not line up. A surface without the
+    column falls back to connected components only.
+  - Adds a `vtk>=9.1` dependency (the one heavy dependency here, ~100 MB).
 - **erode**: new tool. Erodes a binary segmentation MRC `--iterations` times in
   the XY plane per Z slice (default) or in 3D (`--3d`), with `--connectivity`
   4/8 (XY) or 6/18/26 (3D). Writes a uint8 0/1 MRC keeping the voxel size and

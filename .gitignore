@@ -34,6 +34,10 @@ out/
 example/**/*.mrc
 example/**/*.rec
 
+# vtp-normals scratch: the original standalone scripts and the large example
+# .mrc/.vtp live here and are never committed.
+tests/vtp_flip_normal/
+
 # reconstruction outputs and scratch
 reconstruction*/
 recon_mine*/

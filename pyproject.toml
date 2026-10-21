@@ -38,6 +38,7 @@ dependencies = [
     "starfile>=0.5",
     "networkx>=2.6",
     "pillow>=9.0",
+    "vtk>=9.1",
 ]
 
 [project.optional-dependencies]
@@ -56,3 +57,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests that are slow or need large example data (deselect with '-m \"not slow\"')",
+]

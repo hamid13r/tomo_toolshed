@@ -22,6 +22,7 @@ from .filament_cleanup.cli import filament_cleanup
 from .xml_reconstruct.cli import xml_reconstruct
 from .xml_reconstruct.compare_cli import compare_tomograms
 from .segmentation_eroder.cli import erode_cmd as erode
+from .vtp_normals.cli import vtp_normals
 
 
 # Declare the group name explicitly with underscores so click does not rewrite
@@ -45,6 +46,7 @@ def tomo_toolshed():
     filament-cleanup   Remove off-helix particles after helical refinement.
     xml-reconstruct    Reconstruct a tomogram from a Warp XML (Warp, etomo or novaCTF engine).
     compare-tomograms  Compare tomograms against a reference (FSC, correlation, spectra).
+    vtp-normals        Split pycurv .vtp surfaces into pieces, preview and flip their normals.
     """
 
 
@@ -61,6 +63,7 @@ tomo_toolshed.add_command(scale_star, name="scale-star")
 tomo_toolshed.add_command(filament_cleanup, name="filament-cleanup")
 tomo_toolshed.add_command(xml_reconstruct, name="xml-reconstruct")
 tomo_toolshed.add_command(compare_tomograms, name="compare-tomograms")
+tomo_toolshed.add_command(vtp_normals, name="vtp-normals")
 
 # Also accept the underscored spellings. Each is a hidden copy so it stays out of
 # the --help index while keeping the underscored command working as typed.
@@ -103,6 +106,10 @@ tomo_toolshed.add_command(_skipped_views_alias, name="skipped_views")
 _trace_filaments_alias = copy.copy(trace_filaments)
 _trace_filaments_alias.hidden = True
 tomo_toolshed.add_command(_trace_filaments_alias, name="trace_filaments")
+
+_vtp_normals_alias = copy.copy(vtp_normals)
+_vtp_normals_alias.hidden = True
+tomo_toolshed.add_command(_vtp_normals_alias, name="vtp_normals")
 
 
 if __name__ == "__main__":
