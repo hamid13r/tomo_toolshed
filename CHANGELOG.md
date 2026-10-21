@@ -8,6 +8,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **erode**: new tool. Erodes a binary segmentation MRC `--iterations` times in
+  the XY plane per Z slice (default) or in 3D (`--3d`), with `--connectivity`
+  4/8 (XY) or 6/18/26 (3D). Writes a uint8 0/1 MRC keeping the voxel size and
+  origin (default output `<input>_eroded.mrc`).
 - **xml-reconstruct**: everything from the standalone `warp_recont_test` repo
   since the first import, merged with its history:
   - `--engine etomo`: IMOD `tilt` weighted back-projection, SIRT-like filter or

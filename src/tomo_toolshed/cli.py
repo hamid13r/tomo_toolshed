@@ -21,6 +21,7 @@ from .scale_star.cli import scale_star
 from .filament_cleanup.cli import filament_cleanup
 from .xml_reconstruct.cli import xml_reconstruct
 from .xml_reconstruct.compare_cli import compare_tomograms
+from .segmentation_eroder.cli import erode_cmd as erode
 
 
 # Declare the group name explicitly with underscores so click does not rewrite
@@ -33,6 +34,7 @@ def tomo_toolshed():
     \b
     skipped-views      Prune skipped etomo views from WarpTools tilt-series XML.
     curate             Curate a mask, or particle picks (star/txt/box), over a tomogram.
+    erode              Erode a binary segmentation MRC in XY (default) or 3D.
     add-defocus        Add Warp XML average defocus to an IsoNet star file.
     trace-filaments    Trace filaments in a mask into a RELION helical star file.
     dipole2star        Collapse manual dipole picks into an oriented-particle star file.
@@ -48,6 +50,7 @@ def tomo_toolshed():
 
 tomo_toolshed.add_command(skipped_views, name="skipped-views")
 tomo_toolshed.add_command(curate, name="curate")
+tomo_toolshed.add_command(erode, name="erode")
 tomo_toolshed.add_command(add_defocus, name="add-defocus")
 tomo_toolshed.add_command(trace_filaments, name="trace-filaments")
 tomo_toolshed.add_command(dipole2star, name="dipole2star")
