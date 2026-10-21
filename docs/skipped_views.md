@@ -178,15 +178,18 @@ Combines with any mode above:
 - Each view in the log (global table) gets etomo's refined `tilt` value:
   view *k* → XML tilt *k*. Views not in the log keep their angle (they are
   excluded anyway, and removed with `--delete`).
-- The sign is matched to the existing XML angles (and separately to the
-  tomostar column), so a file stored with the opposite convention is handled.
+- etomo's sign is used, except when the log clearly follows the existing
+  angles with the opposite sign (correlation ≤ −0.8); then it is flipped to
+  match (checked separately for the XML and the tomostar).
 - Written to the XML `<Angles>` and the `.tomostar` `_wrpAngleTilt`. A
   warning summarises how many angles changed and the largest change, plus an
   extra warning if any change is more than 5° (worth checking the etomo
   alignment before reconstructing).
-- If the log angles do not follow the XML angles at all (correlation < 0.8),
-  the view numbering cannot belong to this tilt series and the file is left
-  untouched.
+- If the log angles do not follow the XML angles (|correlation| < 0.8, e.g.
+  the XML holds an older or failed alignment), **the log values still
+  override them**, with a warning, and the diagnosis table notes
+  `log angles did not fit XML (corr …); log used`. Check the etomo alignment
+  for those series before reconstructing.
 - `taSolution.log` gives angles to 0.1°, so the written values have that
   precision. Re-running is idempotent (no further changes or warnings).
 
@@ -200,7 +203,7 @@ Every run (including `--dry-run`) ends with a table that reads each source
 series                     N   log kept   log removed  XML kept  XML removed  tomostar kept  tomostar removed  check
 NAD069_3_lam18_ts_002.mrc  37  8-29       1-7,30-37    8-29      1-7,30-37    8-29           1-7,30-37         OK
 NAD069_3_lam23_ts_001.mrc  37  n/a        n/a          1-37      -            1-37           -                 SKIP: no taSolution.log
-NAD069_3_lam33_ts_001.mrc  37  13-19      1-12,20-37   1-37      -            1-37           -                 ABORT: log angles do not fit XML (bad etomo alignment?)
+NAD069_3_lam29_ts_001.mrc  37  13-37      1-12         13-37     1-12         13-37          1-12              OK (log angles did not fit XML (corr -0.70); log used)
 ```
 
 - **log**: views in the global table of `taSolution.log`.

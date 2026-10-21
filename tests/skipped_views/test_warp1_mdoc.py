@@ -224,13 +224,37 @@ def test_log_angles_sign_matched_to_xml():
     assert rsv.log_angles_for_xml(root, flipped) == rsv.log_angles_for_xml(root, tilts)
 
 
-def test_log_angles_reject_unrelated_log():
+def test_log_angles_override_even_when_they_do_not_fit():
+    """A log that does not follow the XML angles still overrides them (as-is,
+    etomo's sign); strict=True keeps the old refusal."""
     root = rsv.parse_xml(os.path.join(W1, TS2 + ".xml")).getroot()
     views, tilts = rsv.read_log(os.path.join(IMOD, TS2, "taSolution.log"))
     vals = list(tilts.values())
     scrambled = dict(zip(tilts, vals[::2] + vals[1::2]))
+    assert rsv.log_angle_fit(root, scrambled) < rsv.MIN_ANGLE_CORR
+    angles = rsv.log_angles_for_xml(root, scrambled)
+    assert [a for a in angles if a is not None] == [scrambled[v] for v in sorted(scrambled)]
     with pytest.raises(ValueError):
-        rsv.log_angles_for_xml(root, scrambled)
+        rsv.log_angles_for_xml(root, scrambled, strict=True)
+
+
+def test_poor_fit_series_overridden_with_warning(nad3):
+    """lam29_ts_001: failed etomo alignment, log/XML corr -0.70. The log
+    values are written as they are (no sign flip) and a warning is printed."""
+    st = "NAD069_3_lam29_ts_001.mrc"
+    res = CliRunner().invoke(skipped_views, _nad3_args(
+        nad3, "--xml-pattern", st + ".xml", "--delete"))
+    assert res.exit_code == 0, res.output
+    assert "do not follow the XML angles (corr -0.70)" in res.output
+    assert "overriding with the log values anyway" in res.output
+    views, tilts = rsv.read_log(os.path.join(IMOD, st, "taSolution.log"))
+    root = rsv.parse_xml(str(nad3 / (st + ".xml"))).getroot()
+    angles = [float(a) for a in rsv.split_lines(root.find("Angles").text)]
+    assert angles == [tilts[v] for v in sorted(views)]
+    cols, rows, mcol = _rows(str(nad3 / (st + ".tomostar")))
+    assert [float(r[cols.index("_wrpAngleTilt")]) for r in rows] == angles
+    rows_tbl, _ = _table(res.output)
+    assert rows_tbl[st][8] == "OK" and "corr" in " ".join(rows_tbl[st][9:])
 
 
 @pytest.mark.parametrize("delete", [False, True])
@@ -389,9 +413,9 @@ def test_stale_bak_with_foreign_tilts_aborts(w1):
 # XML + tomostar (backup_tomostar_xml/), etomo logs (frames/imod) and mdocs.
 # --------------------------------------------------------------------------- #
 ORIG = os.path.join(W1, "backup_tomostar_xml")
-# No taSolution.log / failed etomo alignment (log tilts 67-92 deg): untouched.
-UNTOUCHED = {"NAD069_3_lam23_ts_001.mrc", "NAD069_3_lam18_ts_001.mrc",
-             "NAD069_3_lam29_ts_001.mrc", "NAD069_3_lam33_ts_001.mrc"}
+# No taSolution.log: untouched. (Series whose log angles do not fit the XML,
+# e.g. failed etomo alignments, are now overridden with the log values.)
+UNTOUCHED = {"NAD069_3_lam23_ts_001.mrc"}
 
 
 def _series():
@@ -502,14 +526,16 @@ def test_diagnosis_table_after_run(nad3, delete):
     assert res.exit_code == 0, res.output
     rows, lines = _table(res.output)
     assert len(rows) == 22
-    assert any("22 series, 18 OK, 4 need attention." in l for l in lines)
+    assert any("22 series, 21 OK, 1 need attention." in l for l in lines)
     r = rows["NAD069_3_lam18_ts_002.mrc"]
     # series N | log kept/removed | XML kept/removed | tomostar kept/removed | check
     assert r[1:7] == ["37", "8-29", "1-7,30-37", "8-29", "1-7,30-37",
                       "8-29" if delete else "1-37"]
     assert r[8].startswith("OK")
     assert rows["NAD069_3_lam23_ts_001.mrc"][-3:] == ["SKIP:", "no", "taSolution.log"]
-    assert rows["NAD069_3_lam33_ts_001.mrc"][8] == "ABORT:"
+    assert rows["NAD069_3_lam33_ts_001.mrc"][2:9] == [
+        "13-19", "1-12,20-37", "13-19", "1-12,20-37",
+        "13-19" if delete else "1-37", "1-12,20-37" if delete else "-", "OK"]
 
 
 def test_diagnosis_flags_truncated_tomostar(nad3):

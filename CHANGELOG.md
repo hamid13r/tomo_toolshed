@@ -32,6 +32,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `taSolution.log` to etomo's refined values in the XML `<Angles>` and the
   `.tomostar` `_wrpAngleTilt` (sign matched to the file), warning where they
   differ and flagging changes over 5°.
+- **skipped-views**: `--angles-from-log` no longer aborts a series whose log
+  angles do not follow the XML (|corr| < 0.8); the log values override them
+  with a warning. The sign is flipped only when the log clearly follows the
+  file with the opposite sign (the old smallest-difference rule picked the
+  wrong sign for failed alignments with a large offset).
 - **skipped-views**: a diagnosis table at the end of every run lists, per
   series, the views kept / removed according to `taSolution.log`, the XML
   and the tomostar (each read independently, in original view numbering) and

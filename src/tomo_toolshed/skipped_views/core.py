@@ -443,15 +443,19 @@ def dose_warning(label, diffs, n, src, unit="view", quantity="doses",
 # Tilt angles from taSolution.log (--angles-from-log)
 # --------------------------------------------------------------------------- #
 ANGLE_TOL = 0.005  # deg
-MIN_ANGLE_CORR = 0.8   # below this the log cannot belong to this XML
+MIN_ANGLE_CORR = 0.8   # |corr| below this: log angles do not follow the file
 LARGE_ANGLE_CHANGE = 5.0  # deg; flag big etomo corrections for a check
 
 
-def _best_sign(old, new):
-    """+1 or -1: the sign that makes ``new`` agree best with ``old``."""
-    plus = sum(abs(a - b) for a, b in zip(old, new))
-    minus = sum(abs(a + b) for a, b in zip(old, new))
-    return -1 if minus < plus else 1
+def _fit_sign(old, new):
+    """+1 or -1: the sign that makes ``new`` follow ``old``.
+
+    -1 only when the values clearly follow ``old`` with the opposite sign
+    (corr <= -MIN_ANGLE_CORR); otherwise +1, i.e. etomo's own sign, which is
+    what Warp stores. (Choosing by smallest difference picked the wrong sign
+    for failed alignments with a large offset.)
+    """
+    return -1 if len(old) > 2 and _corr(old, new) <= -MIN_ANGLE_CORR else 1
 
 
 def _corr(x, y):
@@ -463,14 +467,29 @@ def _corr(x, y):
     return sxy / (sxx * syy) ** 0.5 if sxx and syy else 1.0
 
 
-def log_angles_for_xml(root, tilts_in_log):
+def log_angle_fit(root, tilts_in_log):
+    """Correlation between the log tilts (sign-matched) and the XML <Angles>
+    over the views in the log; None if fewer than 3 views."""
+    n = get_n_tilts(root)
+    old = [float(a) for a in split_lines(root.find("Angles").text)]
+    idx = [i for i in range(n) if (i + 1) in tilts_in_log]
+    if len(idx) < 3:
+        return None
+    o = [old[i] for i in idx]
+    t = [tilts_in_log[i + 1] for i in idx]
+    return _corr(o, [_fit_sign(o, t) * x for x in t])
+
+
+def log_angles_for_xml(root, tilts_in_log, strict=False):
     """Per-XML-tilt angles from taSolution.log: ``[angle or None]`` (None for
     views not in the log, which are left unchanged).
 
-    The sign is matched to the XML's own <Angles> (Warp normally stores them
-    with etomo's sign; AreAnglesInverted is applied by Warp at use time).
-    Raises ValueError if the log does not track the XML angles at all
-    (corr < 0.8), which means view numbers and XML tilts do not line up.
+    The sign is matched to the XML's own <Angles> when the log clearly follows
+    them with the opposite sign; otherwise etomo's values are used as they are
+    (Warp normally stores etomo's sign; AreAnglesInverted is applied by Warp at
+    use time). If the log does not follow the XML angles (|corr| < 0.8, e.g.
+    the XML holds a failed or older alignment), the log values still override
+    -- use log_angle_fit() to warn. ``strict=True`` raises ValueError instead.
     """
     n = get_n_tilts(root)
     old = [float(a) for a in split_lines(root.find("Angles").text)]
@@ -481,9 +500,9 @@ def log_angles_for_xml(root, tilts_in_log):
         raise ValueError(f"log has view {max(idx) + 1} but XML has {n} tilts")
     o = [old[i] for i in idx]
     t = [tilts_in_log[i + 1] for i in idx]
-    sign = _best_sign(o, t)
+    sign = _fit_sign(o, t)
     t = [sign * x for x in t]
-    if len(idx) > 2 and _corr(o, t) < MIN_ANGLE_CORR:
+    if strict and len(idx) > 2 and _corr(o, t) < MIN_ANGLE_CORR:
         raise ValueError("taSolution.log tilts do not follow the XML angles "
                          "(view numbering mismatch?)")
     out = [None] * n
@@ -761,7 +780,7 @@ def set_tomostar_column(text, col, xml_basenames, values, tol=DOSE_TOL,
     if match_sign:
         pairs = [(o, v) for o, v in zip(old, row_vals) if v is not None]
         if pairs:
-            sign = _best_sign([p[0] for p in pairs], [p[1] for p in pairs])
+            sign = _fit_sign([p[0] for p in pairs], [p[1] for p in pairs])
             row_vals = [None if v is None else sign * v for v in row_vals]
     for i, v in zip(data_idx, row_vals):
         if v is not None:
@@ -1104,7 +1123,7 @@ def diagnose_series(xml_file, tomostar_file, log_path, do_delete, status,
     if hard:
         row["check"] = "MISMATCH: " + "; ".join(hard)
     else:
-        notes = []
+        notes = [reason] if reason else []
         if None in problems:
             notes.append("subset of log (selection)")
         if "no tomostar" in problems:
@@ -1256,13 +1275,21 @@ def _process_one(xml_file, backup_dir, tiltstack_dir, tomostar_dir, all_true,
         # Select with the corrected doses.
         ref_root.find("Dose").text = "\n".join(format_dose(d) for d in mdoc_doses)
 
+    angle_note = None
     if angles_from_log:
         try:
-            overrides.append(angle_override(to_current(
-                log_angles_for_xml(ref_root, tilts_in_log))))
-        except ValueError as exc:
+            log_angles = log_angles_for_xml(ref_root, tilts_in_log)
+        except ValueError as exc:  # no usable views / view beyond XML length
             click.echo(f"{xml_file}: ABORT ({log_path}: {exc}). Left untouched.")
-            return ("abort", "log angles do not fit XML (bad etomo alignment?)"), None
+            return ("abort", str(exc)), None
+        fit = log_angle_fit(ref_root, tilts_in_log)
+        if fit is not None and fit < MIN_ANGLE_CORR:
+            angle_note = f"log angles did not fit XML (corr {fit:.2f}); log used"
+            click.echo(
+                f"{xml_file}: WARNING: taSolution.log tilts do not follow the XML "
+                f"angles (corr {fit:.2f}); overriding with the log values anyway. "
+                "Check the etomo alignment.")
+        overrides.append(angle_override(to_current(log_angles)))
 
     mask = to_current(compute_keep_mask(
         ref_root, views_in_log, tilts_in_log, all_true, n_tilts, max_tilt))
@@ -1278,4 +1305,6 @@ def _process_one(xml_file, backup_dir, tiltstack_dir, tomostar_dir, all_true,
                              overrides=overrides, tomostar_dir=tomostar_dir)
     if status[0] != "ok":
         planned = None
+    elif angle_note:
+        status = ("ok", angle_note)
     return status, planned
