@@ -872,7 +872,7 @@ def handle_flip(xml_file, backup_dir, mask, dry_run, mdoc_doses=None,
         click.echo(f"{xml_file}: [dry-run] would change {changes} UseTilt values "
                    f"({sum(mask)} of {n} tilts kept).")
         _echo_dose_warnings(msgs)
-        return
+        return ("ok", None)
 
     backup = make_backup(xml_file, os.path.join(backup_dir, os.path.basename(xml_file)))
     root.find("UseTilt").text = "\n".join(updated)
@@ -884,6 +884,7 @@ def handle_flip(xml_file, backup_dir, mask, dry_run, mdoc_doses=None,
         extra = f"; tomostar updated (backup: {ts_bak})"
     click.echo(f"{xml_file}: {changes} changes made to UseTilt (backup: {backup}){extra}.")
     _echo_dose_warnings(msgs)
+    return ("ok", None)
 
 
 def find_tomostar(tomostar_dir, xml_file):
@@ -915,11 +916,11 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
 
     if not deleted and not overrides:
         click.echo(f"{xml_file}: nothing to delete (all {n} tilts kept).")
-        return
+        return ("ok", None)
     if len(deleted) == n:
         click.echo(f"{xml_file}: ABORT (selection would delete all {n} tilts; "
                    "check the taSolution.log / options). Left untouched.")
-        return
+        return ("abort", "would delete all tilts")
 
     # Pre-flight: abort this file untouched if any per-tilt structure != N.
     errors = validate_structure(root, n)
@@ -927,11 +928,11 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
         click.echo(f"{xml_file}: ABORT (structure inconsistent, left untouched):")
         for e in errors:
             click.echo(f"    - {e}")
-        return
+        return ("abort", "XML structure inconsistent")
 
     if not os.path.exists(tomostar_file):
         click.echo(f"{xml_file}: tomostar {tomostar_file} not found, skipping.")
-        return
+        return ("skip", "no tomostar")
 
     xml_bns = movie_basenames(root, n)
 
@@ -946,7 +947,7 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
         msgs = apply_overrides_xml(root, overrides) + ts_msgs
     except ValueError as exc:
         click.echo(f"{xml_file}: ABORT ({exc}).")
-        return
+        return ("abort", str(exc))
 
     if dry_run:
         if deleted:
@@ -963,7 +964,7 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
         if warning:
             click.echo(f"    WARNING: {warning}")
         _echo_dose_warnings(msgs)
-        return
+        return ("ok", None)
 
     m = delete_tilts_in_xml(root, n, deleted) if deleted else n
     assert_after_delete(root, m)
@@ -982,6 +983,7 @@ def handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
     if warning:
         click.echo(f"    WARNING: {warning}")
     _echo_dose_warnings(msgs)
+    return ("ok", None)
 
 
 def reference_xml(xml_file, root):
@@ -1015,11 +1017,135 @@ def reference_xml(xml_file, root):
 
 
 # --------------------------------------------------------------------------- #
+# Diagnosis table: kept / removed views per source, read independently.
+# --------------------------------------------------------------------------- #
+def view_ranges(views):
+    """Compact 1-based view list: [1,2,3,5,7,8] -> '1-3,5,7-8' ('-' if empty)."""
+    out = []
+    for v in sorted(views):
+        if out and v == out[-1][1] + 1:
+            out[-1][1] = v
+        else:
+            out.append([v, v])
+    return ",".join(f"{a}-{b}" if a != b else str(a) for a, b in out) or "-"
+
+
+def diagnose_series(xml_file, tomostar_file, log_path, do_delete, status,
+                    planned_xml=None):
+    """One diagnosis row. Each source is read on its own from disk:
+
+    * taSolution.log -- views in the global table;
+    * XML            -- tilts present with UseTilt=True;
+    * tomostar       -- rows present.
+
+    Views are numbered in the ORIGINAL series (through <xml>.bak if --delete
+    already ran), so all three columns are directly comparable. In a dry run
+    ``planned_xml`` (set of views the XML would keep) replaces the on-disk XML.
+    """
+    row = {"series": os.path.splitext(os.path.basename(xml_file))[0]}
+    try:
+        root = parse_xml(xml_file).getroot()
+        ref_root, to_ref, _ = reference_xml(xml_file, root)
+    except Exception as exc:  # unreadable XML / stale .bak: report, don't crash
+        row.update(n="?", check=f"cannot read XML ({exc})")
+        return row
+    ref_names = movie_basenames(ref_root, get_n_tilts(ref_root))
+    n_ref = len(ref_names)
+    all_views = set(range(1, n_ref + 1))
+    view_of = {name: j + 1 for j, name in enumerate(ref_names)}
+    row["n"] = n_ref
+
+    log = read_log(log_path)
+    log_keep = None if log is None else {v for v in log[0] if v <= n_ref}
+    row["log"] = (log_keep, None if log_keep is None else all_views - log_keep)
+
+    names = movie_basenames(root, get_n_tilts(root))
+    ut = split_lines(root.find("UseTilt").text)
+    xml_keep = {view_of[nm] for nm, u in zip(names, ut) if u == "True"}
+    if planned_xml is not None:
+        xml_keep = set(planned_xml)
+    row["xml"] = (xml_keep, all_views - xml_keep)
+
+    ts_keep = None
+    if tomostar_file and os.path.exists(tomostar_file):
+        try:
+            lines, cols, mcol, data_idx = parse_tomostar(tomostar_file)
+            ts_names = [os.path.basename(lines[i].split()[mcol]) for i in data_idx]
+            ts_keep = {view_of[nm] for nm in ts_names if nm in view_of}
+            unknown = len(ts_names) - len(ts_keep)
+            if planned_xml is not None and do_delete and status[0] == "ok":
+                ts_keep &= set(planned_xml)
+        except Exception:
+            unknown = None
+        row["ts"] = (ts_keep, None if ts_keep is None else all_views - ts_keep)
+    else:
+        unknown = 0
+        row["ts"] = (None, None)
+
+    # Verdict.
+    kind, reason = status
+    if kind != "ok":
+        row["check"] = f"{kind.upper()}: {reason}"
+        return row
+    problems = []
+    if log_keep is not None and not xml_keep <= log_keep:
+        problems.append("XML keeps views not in log")
+    elif log_keep is not None and xml_keep != log_keep:
+        problems.append(None)  # subset: --n-tilts / --max-tilt selection
+    if ts_keep is None:
+        problems.append("no tomostar" if unknown == 0 else "tomostar unreadable")
+    elif unknown:
+        problems.append(f"{unknown} tomostar rows not in XML")
+    elif do_delete and ts_keep != xml_keep:
+        problems.append("tomostar != XML")
+    elif not do_delete and ts_keep != {view_of[nm] for nm in names}:
+        problems.append("tomostar rows != XML tilts")
+    hard = [p for p in problems if p and p != "no tomostar"]
+    if hard:
+        row["check"] = "MISMATCH: " + "; ".join(hard)
+    else:
+        notes = []
+        if None in problems:
+            notes.append("subset of log (selection)")
+        if "no tomostar" in problems:
+            notes.append("no tomostar")
+        if not do_delete and ts_keep is not None:
+            notes.append("tomostar keeps all rows (UseTilt excludes)")
+        row["check"] = "OK" + (f" ({'; '.join(notes)})" if notes else "")
+    return row
+
+
+def format_diagnosis(rows, dry_run):
+    """Render diagnosis rows as an aligned text table."""
+    def cell(pair, i):
+        return "n/a" if pair is None or pair[i] is None else view_ranges(pair[i])
+    head = ["series", "N", "log kept", "log removed", "XML kept", "XML removed",
+            "tomostar kept", "tomostar removed", "check"]
+    body = [[r["series"], str(r.get("n", "?")),
+             cell(r.get("log"), 0), cell(r.get("log"), 1),
+             cell(r.get("xml"), 0), cell(r.get("xml"), 1),
+             cell(r.get("ts"), 0), cell(r.get("ts"), 1), r.get("check", "")]
+            for r in rows]
+    widths = [max(len(x[k]) for x in [head] + body) for k in range(len(head) - 1)]
+    def line(cols):
+        return "  ".join(c.ljust(w) for c, w in zip(cols, widths)) + "  " + cols[-1]
+    title = ("Diagnosis" + (" [dry-run: XML/tomostar as they WOULD be]" if dry_run else "")
+             + " -- views numbered as in taSolution.log (original series); "
+             "XML kept = UseTilt True")
+    out = ["", title, line(head), line(["-" * w for w in widths] + ["-----"])]
+    out += [line(b) for b in body]
+    n_bad = sum(1 for r in rows if not r.get("check", "").startswith("OK"))
+    out.append(f"{len(rows)} series, {len(rows) - n_bad} OK, {n_bad} need attention.")
+    return "\n".join(out)
+
+
+# --------------------------------------------------------------------------- #
 # Orchestrator
 # --------------------------------------------------------------------------- #
 def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
                       tomostar_dir, all_true, n_tilts, max_tilt, do_delete,
-                      dry_run, mdoc_dir=None, angles_from_log=False):
+                      dry_run, mdoc_dir=None, angles_from_log=False,
+                      summary=True):
     """Process all matching XML files in flip mode or (with ``do_delete``)
     delete mode. Messaging goes through ``click.echo``.
 
@@ -1028,6 +1154,9 @@ def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
     --max-tilt selection. With ``angles_from_log``, tilt angles of the views in
     taSolution.log are set to etomo's refined values. Both are written to the
     XML and the matching .tomostar.
+
+    Ends with a diagnosis table (``summary``) listing, per series, the views
+    kept / removed according to taSolution.log, the XML and the tomostar.
     """
     if do_delete and all_true:
         raise click.UsageError(
@@ -1056,72 +1185,97 @@ def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
             "tilt count changed."
         )
 
+    rows = []
     for xml_file in xml_files:
-        log_path = os.path.join(
-            tiltstack_dir,
-            os.path.splitext(os.path.basename(xml_file))[0], "taSolution.log"
-        )
-        views_in_log, tilts_in_log = set(), {}
-        if not all_true or angles_from_log:
-            log = read_log(log_path)
-            if log is None:
-                click.echo(f"Log file {log_path} not found or empty, skipping {xml_file}.")
-                continue
-            views_in_log, tilts_in_log = log
-            if all_true:
-                views_in_log = set()
+        status, planned = _process_one(
+            xml_file, backup_dir, tiltstack_dir, tomostar_dir, all_true,
+            n_tilts, max_tilt, do_delete, dry_run, mdoc_dir, angles_from_log)
+        if summary:
+            log_path = os.path.join(
+                tiltstack_dir,
+                os.path.splitext(os.path.basename(xml_file))[0], "taSolution.log")
+            rows.append(diagnose_series(
+                xml_file, find_tomostar(tomostar_dir, xml_file), log_path,
+                do_delete, status, planned_xml=planned if dry_run else None))
+    if summary:
+        click.echo(format_diagnosis(rows, dry_run))
 
-        root = parse_xml(xml_file).getroot()
-        cur_names = movie_basenames(root, get_n_tilts(root))
 
-        # taSolution.log view numbers refer to the tilt series as etomo saw
-        # it. If --delete already removed tilts, the first backup (<xml>.bak)
-        # still has that original order: select on it, map back by movie name.
+def _process_one(xml_file, backup_dir, tiltstack_dir, tomostar_dir, all_true,
+                 n_tilts, max_tilt, do_delete, dry_run, mdoc_dir, angles_from_log):
+    """Process one XML. Returns (status, planned_views): status is
+    ("ok"|"skip"|"abort", reason); planned_views is the set of original view
+    numbers the XML keeps after this run (None if not processed)."""
+    log_path = os.path.join(
+        tiltstack_dir,
+        os.path.splitext(os.path.basename(xml_file))[0], "taSolution.log"
+    )
+    views_in_log, tilts_in_log = set(), {}
+    if not all_true or angles_from_log:
+        log = read_log(log_path)
+        if log is None:
+            click.echo(f"Log file {log_path} not found or empty, skipping {xml_file}.")
+            return ("skip", "no taSolution.log"), None
+        views_in_log, tilts_in_log = log
+        if all_true:
+            views_in_log = set()
+
+    root = parse_xml(xml_file).getroot()
+    cur_names = movie_basenames(root, get_n_tilts(root))
+
+    # taSolution.log view numbers refer to the tilt series as etomo saw
+    # it. If --delete already removed tilts, the first backup (<xml>.bak)
+    # still has that original order: select on it, map back by movie name.
+    try:
+        ref_root, to_ref, ref_note = reference_xml(xml_file, root)
+    except ValueError as exc:
+        click.echo(f"{xml_file}: ABORT ({exc}). Left untouched.")
+        return ("abort", "stale <xml>.bak"), None
+    if ref_note:
+        click.echo(ref_note)
+    ref_names = movie_basenames(ref_root, get_n_tilts(ref_root))
+
+    def to_current(values):
+        return [values[j] for j in to_ref]
+
+    overrides = []
+
+    if mdoc_dir is not None:
+        mdoc_path = find_mdoc(mdoc_dir, xml_file)
+        if mdoc_path is None:
+            click.echo(f"mdoc for {xml_file} not found in {mdoc_dir}, "
+                       f"skipping {xml_file}.")
+            return ("skip", "no mdoc"), None
         try:
-            ref_root, to_ref, ref_note = reference_xml(xml_file, root)
+            mdoc_doses = mdoc_doses_for_xml(ref_root, mdoc_path)
         except ValueError as exc:
-            click.echo(f"{xml_file}: ABORT ({exc}). Left untouched.")
-            continue
-        if ref_note:
-            click.echo(ref_note)
-        ref_names = movie_basenames(ref_root, get_n_tilts(ref_root))
+            click.echo(f"{xml_file}: ABORT (mdoc {mdoc_path}: {exc}). "
+                       "Left untouched.")
+            return ("abort", f"mdoc: {exc}"), None
+        overrides.append(dose_override(to_current(mdoc_doses)))
+        # Select with the corrected doses.
+        ref_root.find("Dose").text = "\n".join(format_dose(d) for d in mdoc_doses)
 
-        def to_current(values):
-            return [values[j] for j in to_ref]
+    if angles_from_log:
+        try:
+            overrides.append(angle_override(to_current(
+                log_angles_for_xml(ref_root, tilts_in_log))))
+        except ValueError as exc:
+            click.echo(f"{xml_file}: ABORT ({log_path}: {exc}). Left untouched.")
+            return ("abort", "log angles do not fit XML (bad etomo alignment?)"), None
 
-        overrides = []
+    mask = to_current(compute_keep_mask(
+        ref_root, views_in_log, tilts_in_log, all_true, n_tilts, max_tilt))
+    view_numbers = [j + 1 for j in to_ref]
 
-        if mdoc_dir is not None:
-            mdoc_path = find_mdoc(mdoc_dir, xml_file)
-            if mdoc_path is None:
-                click.echo(f"mdoc for {xml_file} not found in {mdoc_dir}, "
-                           f"skipping {xml_file}.")
-                continue
-            try:
-                mdoc_doses = mdoc_doses_for_xml(ref_root, mdoc_path)
-            except ValueError as exc:
-                click.echo(f"{xml_file}: ABORT (mdoc {mdoc_path}: {exc}). "
-                           "Left untouched.")
-                continue
-            overrides.append(dose_override(to_current(mdoc_doses)))
-            # Select with the corrected doses.
-            ref_root.find("Dose").text = "\n".join(format_dose(d) for d in mdoc_doses)
-
-        if angles_from_log:
-            try:
-                overrides.append(angle_override(to_current(
-                    log_angles_for_xml(ref_root, tilts_in_log))))
-            except ValueError as exc:
-                click.echo(f"{xml_file}: ABORT ({log_path}: {exc}). Left untouched.")
-                continue
-
-        mask = to_current(compute_keep_mask(
-            ref_root, views_in_log, tilts_in_log, all_true, n_tilts, max_tilt))
-        view_numbers = [j + 1 for j in to_ref]
-
-        if do_delete:
-            handle_delete(xml_file, tomostar_dir, mask, tilts_in_log, dry_run,
-                          overrides=overrides, view_numbers=view_numbers)
-        else:
-            handle_flip(xml_file, backup_dir, mask, dry_run,
-                        overrides=overrides, tomostar_dir=tomostar_dir)
+    planned = {v for v, k in zip(view_numbers, mask) if k}
+    if do_delete:
+        status = handle_delete(xml_file, tomostar_dir, mask, tilts_in_log,
+                               dry_run, overrides=overrides,
+                               view_numbers=view_numbers)
+    else:
+        status = handle_flip(xml_file, backup_dir, mask, dry_run,
+                             overrides=overrides, tomostar_dir=tomostar_dir)
+    if status[0] != "ok":
+        planned = None
+    return status, planned

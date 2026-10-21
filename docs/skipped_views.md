@@ -95,6 +95,7 @@ tomo_toolshed skipped-views --xml-dir ./ --tiltstack-dir imod --mdoc-dir mdocs \
 | `--dry-run` | False | Report what would change and write nothing |
 | `--mdoc-dir` | (none) | Directory of SerialEM `.mdoc` files; per-tilt doses from the mdoc override the XML `<Dose>` and the `.tomostar` `_wrpDose` |
 | `--angles-from-log` | False | Set the tilt angles of the views in `taSolution.log` to etomo's values, in the XML `<Angles>` and the `.tomostar` `_wrpAngleTilt` |
+| `--no-summary` | False | Don't print the diagnosis table at the end |
 
 Two modes share the same selection (`--all-true` / `--n-tilts` / `--max-tilt`):
 
@@ -188,6 +189,29 @@ Combines with any mode above:
   untouched.
 - `taSolution.log` gives angles to 0.1°, so the written values have that
   precision. Re-running is idempotent (no further changes or warnings).
+
+### Diagnosis table
+Every run (including `--dry-run`) ends with a table that reads each source
+**on its own** and lists the kept / removed views, numbered as in
+`taSolution.log` (the original series, mapped through `<xml>.bak` after a
+`--delete`):
+
+```
+series                     N   log kept   log removed  XML kept  XML removed  tomostar kept  tomostar removed  check
+NAD069_3_lam18_ts_002.mrc  37  8-29       1-7,30-37    8-29      1-7,30-37    8-29           1-7,30-37         OK
+NAD069_3_lam23_ts_001.mrc  37  n/a        n/a          1-37      -            1-37           -                 SKIP: no taSolution.log
+NAD069_3_lam33_ts_001.mrc  37  13-19      1-12,20-37   1-37      -            1-37           -                 ABORT: log angles do not fit XML (bad etomo alignment?)
+```
+
+- **log**: views in the global table of `taSolution.log`.
+- **XML**: tilts present with `UseTilt = True`.
+- **tomostar**: rows present. In flip mode the tomostar keeps every row (Warp
+  excludes tilts through `UseTilt`), so `tomostar kept` is the full series.
+- **check**: `OK`, `SKIP`/`ABORT` (with the reason; the series was left
+  untouched) or `MISMATCH` (e.g. the tomostar does not hold the XML's tilts).
+  With `--n-tilts` / `--max-tilt`, XML kept is a subset of log kept and is
+  reported as `OK (subset of log (selection))`.
+- With `--dry-run` the XML / tomostar columns show what they **would** be.
 
 ### Which files are written
 - `--delete`: XML and `.tomostar` (always, as before).

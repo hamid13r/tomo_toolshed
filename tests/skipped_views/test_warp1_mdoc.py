@@ -467,3 +467,73 @@ def test_nad3_tomostars_match_xml(nad3, delete):
             assert float(r[di]) == pytest.approx(doses[name], abs=1e-4), (st, view)
             others = [k for k in range(len(cols)) if k not in (ai, di)]
             assert [r[k] for k in others] == [orig_row[name][k] for k in others], st
+
+
+# --------------------------------------------------------------------------- #
+# Diagnosis table
+# --------------------------------------------------------------------------- #
+def test_view_ranges():
+    assert rsv.view_ranges([1, 2, 3, 5, 7, 8]) == "1-3,5,7-8"
+    assert rsv.view_ranges([]) == "-"
+    assert rsv.view_ranges({4}) == "4"
+
+
+def _nad3_args(d, *extra):
+    return ["--xml-dir", str(d), "--tiltstack-dir", str(d / "imod"),
+            "--tomostar-dir", str(d), "--backup-dir", str(d / "bak"),
+            "--mdoc-dir", str(d.parent / "PACE"), "--angles-from-log", *extra]
+
+
+def _table(output):
+    lines = output.split("\n")
+    i = next(k for k, l in enumerate(lines) if l.startswith("Diagnosis"))
+    rows = {}
+    for l in lines[i + 3:]:
+        if not l.startswith("NAD069"):
+            break
+        cols = l.split()
+        rows[cols[0]] = cols
+    return rows, lines
+
+
+@pytest.mark.parametrize("delete", [False, True])
+def test_diagnosis_table_after_run(nad3, delete):
+    res = CliRunner().invoke(skipped_views, _nad3_args(nad3, *(["--delete"] if delete else [])))
+    assert res.exit_code == 0, res.output
+    rows, lines = _table(res.output)
+    assert len(rows) == 22
+    assert any("22 series, 18 OK, 4 need attention." in l for l in lines)
+    r = rows["NAD069_3_lam18_ts_002.mrc"]
+    # series N | log kept/removed | XML kept/removed | tomostar kept/removed | check
+    assert r[1:7] == ["37", "8-29", "1-7,30-37", "8-29", "1-7,30-37",
+                      "8-29" if delete else "1-37"]
+    assert r[8].startswith("OK")
+    assert rows["NAD069_3_lam23_ts_001.mrc"][-3:] == ["SKIP:", "no", "taSolution.log"]
+    assert rows["NAD069_3_lam33_ts_001.mrc"][8] == "ABORT:"
+
+
+def test_diagnosis_flags_truncated_tomostar(nad3):
+    """The failure seen on real data: tomostar shorter than the XML."""
+    assert CliRunner().invoke(skipped_views, _nad3_args(nad3)).exit_code == 0
+    tomo = nad3 / "NAD069_3_lam18_ts_002.mrc.tomostar"
+    lines = tomo.read_text().split("\n")
+    tomo.write_text("\n".join(lines[:39]) + "\n")  # keep rows 1-29 only
+    res = CliRunner().invoke(skipped_views, _nad3_args(
+        nad3, "--xml-pattern", "*lam18_ts_002*.xml", "--dry-run"))
+    rows, _ = _table(res.output)
+    r = rows["NAD069_3_lam18_ts_002.mrc"]
+    assert r[6:8] == ["1-29", "30-37"] and r[8] == "MISMATCH:"
+
+
+def test_diagnosis_after_second_delete_uses_original_numbering(nad3):
+    args = _nad3_args(nad3, "--xml-pattern", "*lam36_ts_002*.xml", "--delete")
+    assert CliRunner().invoke(skipped_views, args).exit_code == 0
+    res = CliRunner().invoke(skipped_views, args + ["--dry-run"])
+    r, _ = _table(res.output)
+    assert r["NAD069_3_lam36_ts_002.mrc"][1:9] == [
+        "37", "6-22", "1-5,23-37", "6-22", "1-5,23-37", "6-22", "1-5,23-37", "OK"]
+
+
+def test_no_summary_flag(nad3):
+    res = CliRunner().invoke(skipped_views, _nad3_args(nad3, "--dry-run", "--no-summary"))
+    assert res.exit_code == 0 and "Diagnosis" not in res.output

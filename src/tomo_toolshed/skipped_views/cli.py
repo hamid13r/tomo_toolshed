@@ -47,9 +47,12 @@ from .core import process_xml_files
               help='Set the tilt angles of the views in taSolution.log to '
                    "etomo's refined values, in the XML <Angles> and the "
                    '.tomostar _wrpAngleTilt, with a warning where they differ.')
+@click.option('--no-summary', is_flag=True, default=False,
+              help='Do not print the diagnosis table (kept/removed views per '
+                   'taSolution.log, XML and tomostar) at the end.')
 def skipped_views(xml_dir, xml_pattern, backup_dir, tiltstack_dir, tomostar_dir,
                   all_true, n_tilts, max_tilt, do_delete, dry_run, mdoc_dir,
-                  angles_from_log):
+                  angles_from_log, no_summary):
     """Prune skipped etomo views from WarpTools tilt-series XML files.
 
     By default (flip mode) this updates UseTilt True/False from taSolution.log;
@@ -59,6 +62,8 @@ def skipped_views(xml_dir, xml_pattern, backup_dir, tiltstack_dir, tomostar_dir,
     backed up first; use --dry-run to preview. Works on Warp 2 (UTF-8) and
     Warp 1 (UTF-16) XML. With --mdoc-dir, doses are corrected from the mdocs;
     with --angles-from-log, tilt angles are set to etomo's refined values.
+    A diagnosis table at the end lists, per series, the views kept/removed
+    according to taSolution.log, the XML and the tomostar, and flags mismatches.
 
     \b
     examples:
@@ -70,7 +75,8 @@ def skipped_views(xml_dir, xml_pattern, backup_dir, tiltstack_dir, tomostar_dir,
     process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
                       tomostar_dir, all_true, n_tilts, max_tilt, do_delete,
                       dry_run, mdoc_dir=mdoc_dir,
-                      angles_from_log=angles_from_log)
+                      angles_from_log=angles_from_log,
+                      summary=not no_summary)
 
 
 if __name__ == '__main__':

@@ -32,6 +32,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `taSolution.log` to etomo's refined values in the XML `<Angles>` and the
   `.tomostar` `_wrpAngleTilt` (sign matched to the file), warning where they
   differ and flagging changes over 5°.
+- **skipped-views**: a diagnosis table at the end of every run lists, per
+  series, the views kept / removed according to `taSolution.log`, the XML
+  and the tomostar (each read independently, in original view numbering) and
+  flags `SKIP` / `ABORT` / `MISMATCH`. `--no-summary` turns it off.
 - **skipped-views**: in flip mode, `--mdoc-dir` / `--angles-from-log` also
   update the `.tomostar` in `--tomostar-dir` when it exists (backed up first).
 
