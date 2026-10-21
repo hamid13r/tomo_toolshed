@@ -11,14 +11,20 @@ from tomo_toolshed.skipped_views.cli import skipped_views
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 W1 = os.path.join(HERE, "warp1_test")
+IMOD = os.path.join(W1, "frames", "imod")  # etomo runs: imod/<series>/taSolution.log
 TS2 = "NAD069_2_lam11_ts_002.mrc"
 TS3 = "NAD069_2_lam11_ts_003.mrc"  # log has 5 tables (global + local areas)
 
 
 @pytest.fixture
 def w1(tmp_path):
+    """Slim working copy: the two NAD069_2 XMLs, their mdocs and logs."""
     d = tmp_path / "w1"
-    shutil.copytree(W1, d)
+    (d / "PACE").mkdir(parents=True)
+    for ts in (TS2, TS3):
+        shutil.copy(os.path.join(W1, ts + ".xml"), d)
+        shutil.copy(os.path.join(W1, "PACE", ts + ".mdoc"), d / "PACE")
+        shutil.copytree(os.path.join(IMOD, ts), d / "imod" / ts)
     return d
 
 
@@ -57,21 +63,21 @@ def test_warp1_parse_values():
 # taSolution.log
 # --------------------------------------------------------------------------- #
 def test_multi_table_log_uses_global_table_only():
-    views, tilts = rsv.read_log(os.path.join(W1, "imod", TS3, "taSolution.log"))
+    views, tilts = rsv.read_log(os.path.join(IMOD, TS3, "taSolution.log"))
     assert views == set(range(9, 30))
     assert all(isinstance(v, int) for v in views)
     assert tilts[9] == -25.3 and tilts[29] == 34.4  # first table's values
 
 
 def test_single_table_log():
-    views, tilts = rsv.read_log(os.path.join(W1, "imod", TS2, "taSolution.log"))
+    views, tilts = rsv.read_log(os.path.join(IMOD, TS2, "taSolution.log"))
     assert views == set(range(6, 32))
     assert tilts[6] == -42.6
 
 
 def test_multi_table_flip_keeps_logged_views():
     root = rsv.parse_xml(os.path.join(W1, TS3 + ".xml")).getroot()
-    views, tilts = rsv.read_log(os.path.join(W1, "imod", TS3, "taSolution.log"))
+    views, tilts = rsv.read_log(os.path.join(IMOD, TS3, "taSolution.log"))
     mask = rsv.compute_keep_mask(root, views, tilts)
     assert sum(mask) == 21
     assert [i + 1 for i, k in enumerate(mask) if k] == list(range(9, 30))
@@ -80,7 +86,7 @@ def test_multi_table_flip_keeps_logged_views():
 def test_max_tilt_uses_view_numbers_not_list_position():
     """Log starts at view 6: tilt lookup must be by view, not list index."""
     root = rsv.parse_xml(os.path.join(W1, TS2 + ".xml")).getroot()
-    views, tilts = rsv.read_log(os.path.join(W1, "imod", TS2, "taSolution.log"))
+    views, tilts = rsv.read_log(os.path.join(IMOD, TS2, "taSolution.log"))
     doses = rsv.mdoc_doses_for_xml(root, os.path.join(W1, "PACE", TS2 + ".mdoc"))
     root.find("Dose").text = "\n".join(rsv.format_dose(d) for d in doses)
     mask = rsv.compute_keep_mask(root, views, tilts, max_tilt=10)
@@ -202,7 +208,7 @@ def _tomostar_col(path, col):
 @pytest.mark.parametrize("ts", [TS2, TS3])
 def test_log_angles_for_xml(ts):
     root = rsv.parse_xml(os.path.join(W1, ts + ".xml")).getroot()
-    views, tilts = rsv.read_log(os.path.join(W1, "imod", ts, "taSolution.log"))
+    views, tilts = rsv.read_log(os.path.join(IMOD, ts, "taSolution.log"))
     angles = rsv.log_angles_for_xml(root, tilts)
     for i, a in enumerate(angles):
         if (i + 1) in views:
@@ -213,14 +219,14 @@ def test_log_angles_for_xml(ts):
 
 def test_log_angles_sign_matched_to_xml():
     root = rsv.parse_xml(os.path.join(W1, TS2 + ".xml")).getroot()
-    views, tilts = rsv.read_log(os.path.join(W1, "imod", TS2, "taSolution.log"))
+    views, tilts = rsv.read_log(os.path.join(IMOD, TS2, "taSolution.log"))
     flipped = {v: -t for v, t in tilts.items()}
     assert rsv.log_angles_for_xml(root, flipped) == rsv.log_angles_for_xml(root, tilts)
 
 
 def test_log_angles_reject_unrelated_log():
     root = rsv.parse_xml(os.path.join(W1, TS2 + ".xml")).getroot()
-    views, tilts = rsv.read_log(os.path.join(W1, "imod", TS2, "taSolution.log"))
+    views, tilts = rsv.read_log(os.path.join(IMOD, TS2, "taSolution.log"))
     vals = list(tilts.values())
     scrambled = dict(zip(tilts, vals[::2] + vals[1::2]))
     with pytest.raises(ValueError):
@@ -376,3 +382,88 @@ def test_stale_bak_with_foreign_tilts_aborts(w1):
     assert res.exit_code == 0
     assert "ABORT" in res.output and "stale .bak" in res.output
     assert open(xml, "rb").read() == before
+
+
+# --------------------------------------------------------------------------- #
+# End-to-end on the NAD069_3 set: 22 Warp 1 series with their original
+# XML + tomostar (backup_tomostar_xml/), etomo logs (frames/imod) and mdocs.
+# --------------------------------------------------------------------------- #
+ORIG = os.path.join(W1, "backup_tomostar_xml")
+# No taSolution.log / failed etomo alignment (log tilts 67-92 deg): untouched.
+UNTOUCHED = {"NAD069_3_lam23_ts_001.mrc", "NAD069_3_lam18_ts_001.mrc",
+             "NAD069_3_lam29_ts_001.mrc", "NAD069_3_lam33_ts_001.mrc"}
+
+
+def _series():
+    return sorted(f[:-4] for f in os.listdir(ORIG) if f.endswith(".xml"))
+
+
+@pytest.fixture
+def nad3(tmp_path):
+    d = tmp_path / "frames"
+    d.mkdir()
+    for f in os.listdir(ORIG):
+        shutil.copy(os.path.join(ORIG, f), d)
+    shutil.copytree(IMOD, d / "imod")
+    shutil.copytree(os.path.join(W1, "PACE"), tmp_path / "PACE")
+    return d
+
+
+def _rows(path):
+    raw = open(path, "rb").read().decode()
+    lines, cols, mcol, data_idx = rsv.parse_tomostar_text(raw)
+    return cols, [lines[i].split() for i in data_idx], mcol
+
+
+@pytest.mark.parametrize("delete", [False, True])
+def test_nad3_tomostars_match_xml(nad3, delete):
+    args = ["--xml-dir", str(nad3), "--tiltstack-dir", str(nad3 / "imod"),
+            "--tomostar-dir", str(nad3), "--backup-dir", str(nad3 / "bak"),
+            "--mdoc-dir", str(nad3.parent / "PACE"), "--angles-from-log"]
+    if delete:
+        args.append("--delete")
+    res = CliRunner().invoke(skipped_views, args)
+    assert res.exit_code == 0, res.output
+
+    for st in _series():
+        xml, tomo = str(nad3 / (st + ".xml")), str(nad3 / (st + ".tomostar"))
+        orig_xml = os.path.join(ORIG, st + ".xml")
+        if st in UNTOUCHED:
+            assert open(xml, "rb").read() == open(orig_xml, "rb").read(), st
+            assert open(tomo, "rb").read() == \
+                open(os.path.join(ORIG, st + ".tomostar"), "rb").read(), st
+            continue
+
+        root0 = rsv.parse_xml(orig_xml).getroot()
+        names0 = rsv.movie_basenames(root0, rsv.get_n_tilts(root0))
+        views, tilts = rsv.read_log(os.path.join(IMOD, st, "taSolution.log"))
+        doses = dict(zip(names0, rsv.mdoc_doses_for_xml(
+            root0, os.path.join(W1, "PACE", st + ".mdoc"))))
+        oc, orows, om = _rows(os.path.join(ORIG, st + ".tomostar"))
+        orig_row = {r[om]: r for r in orows}
+
+        root = rsv.parse_xml(xml).getroot()
+        n = rsv.get_n_tilts(root)
+        names = rsv.movie_basenames(root, n)
+        angles = [float(a) for a in rsv.split_lines(root.find("Angles").text)]
+        cols, rows, mcol = _rows(tomo)
+
+        # The tomostar holds exactly the XML's tilts, in the same order.
+        assert [r[mcol] for r in rows] == names, st
+        if delete:
+            assert names == [names0[v - 1] for v in sorted(views)], st
+        else:
+            assert n == len(names0), st
+            ut = rsv.split_lines(root.find("UseTilt").text)
+            assert [u == "True" for u in ut] == \
+                [(i + 1) in views for i in range(n)], st
+
+        ai, di = cols.index("_wrpAngleTilt"), cols.index("_wrpDose")
+        for name, a, r in zip(names, angles, rows):
+            view = names0.index(name) + 1
+            want = tilts[view] if view in tilts else float(orig_row[name][ai])
+            assert float(r[ai]) == pytest.approx(want, abs=1e-6), (st, view)
+            assert a == pytest.approx(want, abs=1e-6), (st, view)
+            assert float(r[di]) == pytest.approx(doses[name], abs=1e-4), (st, view)
+            others = [k for k in range(len(cols)) if k not in (ai, di)]
+            assert [r[k] for k in others] == [orig_row[name][k] for k in others], st
