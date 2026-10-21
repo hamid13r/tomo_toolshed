@@ -563,3 +563,25 @@ def test_diagnosis_after_second_delete_uses_original_numbering(nad3):
 def test_no_summary_flag(nad3):
     res = CliRunner().invoke(skipped_views, _nad3_args(nad3, "--dry-run", "--no-summary"))
     assert res.exit_code == 0 and "Diagnosis" not in res.output
+
+
+def test_table_printed_even_when_a_series_errors(nad3):
+    """One broken series must not stop the run or hide the diagnosis table."""
+    (nad3 / "NAD069_3_aaa_broken.mrc.xml").write_bytes(b"\xff\xfe" + "<TiltSeries>".encode("utf-16-le"))
+    shutil.copytree(nad3 / "imod" / "NAD069_3_lam18_ts_002.mrc",
+                    nad3 / "imod" / "NAD069_3_aaa_broken.mrc")
+    res = CliRunner().invoke(skipped_views, _nad3_args(nad3, "--delete"))
+    assert res.exit_code == 0, res.output
+    assert "NAD069_3_aaa_broken.mrc.xml: ERROR (" in res.output
+    rows, lines = _table(res.output)
+    assert len(rows) == 23 and rows["NAD069_3_aaa_broken.mrc"][-1] != "OK"
+    assert "ERROR:" in " ".join(rows["NAD069_3_aaa_broken.mrc"])
+    assert rows["NAD069_3_lam18_ts_002.mrc"][8] == "OK"  # others still processed
+    assert any("23 series, 21 OK, 2 need attention." in l for l in lines)
+
+
+def test_table_printed_when_no_xml_found(tmp_path):
+    res = CliRunner().invoke(skipped_views, ["--xml-dir", str(tmp_path)])
+    assert res.exit_code == 0
+    assert "No XML files found" in res.output and "Diagnosis" in res.output
+    assert "0 series, 0 OK, 0 need attention." in res.output

@@ -1066,7 +1066,7 @@ def diagnose_series(xml_file, tomostar_file, log_path, do_delete, status,
         root = parse_xml(xml_file).getroot()
         ref_root, to_ref, _ = reference_xml(xml_file, root)
     except Exception as exc:  # unreadable XML / stale .bak: report, don't crash
-        row.update(n="?", check=f"cannot read XML ({exc})")
+        row.update(n="?", check=f"ERROR: cannot read XML ({exc})")
         return row
     ref_names = movie_basenames(ref_root, get_n_tilts(ref_root))
     n_ref = len(ref_names)
@@ -1185,7 +1185,9 @@ def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
 
     xml_files = sorted(glob.glob(os.path.join(xml_dir, xml_pattern)))
     if not xml_files:
-        click.echo("No XML files found.")
+        click.echo(f"No XML files found ({os.path.join(xml_dir, xml_pattern)}).")
+        if summary:
+            click.echo(format_diagnosis([], dry_run))
         return
 
     if not dry_run:
@@ -1205,19 +1207,37 @@ def process_xml_files(xml_dir, xml_pattern, backup_dir, tiltstack_dir,
         )
 
     rows = []
-    for xml_file in xml_files:
-        status, planned = _process_one(
-            xml_file, backup_dir, tiltstack_dir, tomostar_dir, all_true,
-            n_tilts, max_tilt, do_delete, dry_run, mdoc_dir, angles_from_log)
+    try:
+        for xml_file in xml_files:
+            # One bad series must not stop the run (or hide the table).
+            try:
+                status, planned = _process_one(
+                    xml_file, backup_dir, tiltstack_dir, tomostar_dir, all_true,
+                    n_tilts, max_tilt, do_delete, dry_run, mdoc_dir,
+                    angles_from_log)
+            except Exception as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                click.echo(f"{xml_file}: ERROR ({reason}). Skipped; check this "
+                           "series by hand.")
+                status, planned = ("error", reason), None
+            if summary:
+                log_path = os.path.join(
+                    tiltstack_dir,
+                    os.path.splitext(os.path.basename(xml_file))[0],
+                    "taSolution.log")
+                try:
+                    rows.append(diagnose_series(
+                        xml_file, find_tomostar(tomostar_dir, xml_file), log_path,
+                        do_delete, status,
+                        planned_xml=planned if dry_run else None))
+                except Exception as exc:
+                    rows.append({"series": os.path.splitext(
+                        os.path.basename(xml_file))[0],
+                        "check": f"ERROR: cannot diagnose ({type(exc).__name__}: {exc})"})
+    finally:
+        # Printed even if the run is interrupted (Ctrl-C) part-way.
         if summary:
-            log_path = os.path.join(
-                tiltstack_dir,
-                os.path.splitext(os.path.basename(xml_file))[0], "taSolution.log")
-            rows.append(diagnose_series(
-                xml_file, find_tomostar(tomostar_dir, xml_file), log_path,
-                do_delete, status, planned_xml=planned if dry_run else None))
-    if summary:
-        click.echo(format_diagnosis(rows, dry_run))
+            click.echo(format_diagnosis(rows, dry_run))
 
 
 def _process_one(xml_file, backup_dir, tiltstack_dir, tomostar_dir, all_true,

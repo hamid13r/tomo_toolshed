@@ -41,6 +41,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   series, the views kept / removed according to `taSolution.log`, the XML
   and the tomostar (each read independently, in original view numbering) and
   flags `SKIP` / `ABORT` / `MISMATCH`. `--no-summary` turns it off.
+  An unexpected error in one series (e.g. an unreadable XML) is reported as an
+  `ERROR` row instead of stopping the run, and the table is printed even if
+  no XML matches or the run is interrupted.
 - **skipped-views**: in flip mode, `--mdoc-dir` / `--angles-from-log` also
   update the `.tomostar` in `--tomostar-dir` when it exists (backed up first).
 
