@@ -40,6 +40,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     clicking a table row, Prev/Next, up/down and membrane clicks only highlight
     the piece and move the slices, keeping your current zoom. Use the matplotlib
     toolbar to zoom/pan and **Full view** to reset.
+  - `curate` now reads the pixel size from the MRC header of the tomogram it is
+    actually showing, so `--tomo-dir` / `--tomo-pattern` get the right `--apix`
+    too (previously only an explicit `--tomo` did; `--tomo-dir` silently fell
+    back to 9.98 Å and mis-scaled the surface overlay).
   - Adds a `vtk>=9.1` dependency (the one heavy dependency here, ~100 MB).
 - **erode**: new tool. Erodes a binary segmentation MRC `--iterations` times in
   the XY plane per Z slice (default) or in 3D (`--3d`), with `--connectivity`

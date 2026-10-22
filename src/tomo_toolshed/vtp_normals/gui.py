@@ -477,6 +477,23 @@ def header_apix(tomo_path):
     return apix if apix > 0 else None
 
 
+def resolve_apix(apix_cli, tomo_path, fallback=9.98):
+    """Pixel size to use: the explicit --apix, else the tomogram's MRC header, else the fallback.
+
+    Reads the header of whichever tomogram is actually shown, so --tomo-dir / --tomo-pattern
+    get the right pixel size too, not only an explicit --tomo.
+    """
+    if apix_cli is not None:
+        return apix_cli
+    apix = header_apix(tomo_path) if tomo_path else None
+    if apix is None:
+        click.echo(f"  pixel size not given and no MRC header, using {fallback:g} A "
+                   f"(pass --apix if that is wrong)")
+        return fallback
+    click.echo(f"  pixel size from the MRC header: {apix:g} A")
+    return apix
+
+
 def check_alignment(surface, shape):
     """Warn if the surface does not fall inside the tomogram (wrong pixel size / surface units)."""
     nz, ny, nx = shape
@@ -498,16 +515,7 @@ def run_curation(tomo_file, vtp, vtp_glob, tomo_dir, tomo_pattern, skip_done, di
     """Curate normal orientations piece by piece in 3D, then flip and review."""
     if plt.get_backend().lower() == "agg":
         raise click.ClickException("no interactive matplotlib backend (is DISPLAY set? try ssh -X)")
-    if apix is None:
-        apix = header_apix(tomo_file) if tomo_file else None
-        if apix is None:
-            apix = 9.98
-            click.echo(f"Pixel size not given, using {apix:g} A")
-        else:
-            click.echo(f"Pixel size from the MRC header: {apix:g} A")
-    # --apix stays the UNBINNED pixel size; everything mapping surface coords to
-    # display voxels uses the binned (effective) pixel size.
-    apix_eff = apix * bin_factor
+    apix_cli = apix  # explicit --apix (None = read from each tomogram's MRC header below)
     if vtp:
         vtp_paths = [vtp]
     else:
@@ -524,6 +532,10 @@ def run_curation(tomo_file, vtp, vtp_glob, tomo_dir, tomo_pattern, skip_done, di
         tomo_path = tomo_file or core.find_tomogram(vtp_path, tomo_dir, tomo_pattern)
         if tomo_path is None:
             click.echo("  WARNING: tomogram not found, showing surfaces without background")
+        # --apix stays the UNBINNED pixel size; read it from THIS tomogram's header when not
+        # given (works for --tomo-dir too, not only --tomo). Coords use the binned apix_eff.
+        apix = resolve_apix(apix_cli, tomo_path)
+        apix_eff = apix * bin_factor
         tomo = volume.load_tomogram_uint8(tomo_path, bin_factor, gaussian, apix_eff) if tomo_path else None
         if tomo is not None:
             click.echo(f"  display volume {tomo.shape} (Z,Y,X), effective pixel size {apix_eff:g} A"

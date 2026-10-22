@@ -434,6 +434,52 @@ def test_cli_curate_errors_on_agg_backend(tmp_path):
     assert "no interactive matplotlib backend" in res.output
 
 
+def test_resolve_apix_prefers_cli_then_header_then_fallback(tmp_path):
+    import mrcfile
+    from tomo_toolshed.vtp_normals import gui
+    mrc = tmp_path / "t.mrc"
+    with mrcfile.new(str(mrc), overwrite=True) as m:
+        m.set_data(np.zeros((4, 5, 6), np.float32))
+        m.voxel_size = 6.65
+    assert gui.resolve_apix(9.98, str(mrc)) == 9.98          # explicit --apix wins
+    assert gui.resolve_apix(None, str(mrc)) == pytest.approx(6.65)  # from the MRC header
+    assert gui.resolve_apix(None, None) == 9.98              # no tomogram -> fallback
+
+
+def test_curate_reads_apix_from_header_via_tomo_dir(tmp_path, monkeypatch):
+    # Regression: --tomo-dir / --tomo-pattern must read the pixel size from the found
+    # tomogram's header (not silently fall back to 9.98 as before).
+    import matplotlib
+    matplotlib.use("Agg", force=True)
+    import mrcfile
+    from tomo_toolshed.vtp_normals import gui
+    surfaces, tomo = tmp_path / "surfaces", tmp_path / "tomo"
+    surfaces.mkdir()
+    tomo.mkdir()
+    points, triangles = grid(9, 5)
+    arrays = standard_arrays(cell_centres(points, triangles))
+    write_vtp(surfaces / "foo_ts_001.mrc.labels_IMM.vtp", points, triangles, arrays)
+    with mrcfile.new(str(tomo / "foo_ts_001.mrc"), overwrite=True) as m:
+        m.set_data(np.zeros((20, 30, 40), np.float32))
+        m.voxel_size = 6.65
+    seen = {}
+    orig = gui.Surface
+
+    def spy(vp, apix, *a, **k):
+        seen["apix"] = apix
+        return orig(vp, apix, *a, **k)
+
+    monkeypatch.setattr(gui, "Surface", spy)
+    monkeypatch.setattr(gui.NormalCurator, "run", lambda self: (set(), True))
+    monkeypatch.setattr(gui.plt, "get_backend", lambda: "qtagg")  # bypass the Agg guard
+    res = CliRunner().invoke(vtp_normals, ["curate", "--vtp-glob", str(surfaces / "*.vtp"),
+                                           "--tomo-dir", str(tomo), "--tomo-pattern", "{stem}.mrc",
+                                           "--split-dist", "0", "--min-triangles", "0"])
+    assert res.exit_code == 0, res.output
+    assert "pixel size from the MRC header: 6.65" in res.output
+    assert seen["apix"] == pytest.approx(6.65)  # Surface got the header apix, not 9.98
+
+
 # ---------------------------------------------------------------------------
 # volume: binning, Gaussian, and the display loader (--bin / --gaussian).
 # ---------------------------------------------------------------------------
