@@ -43,6 +43,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     written `.flipped.vtp` are byte-identical to `--bin 1`. `curate` also has a
     live **blur (Å)** slider on the displayed slices. These options are not on
     `flip`.
+  - `flip` gains `--coord-scale` (default 10, matching `preview`/`curate`), used
+    to place the surface on the `--preview` background when `--preview` is on.
   - `curate` now opens every view on the **whole tomogram** and never auto-zooms:
     clicking a table row, Prev/Next, up/down and membrane clicks only highlight
     the piece and move the slices, keeping your current zoom. Use the matplotlib

@@ -412,6 +412,21 @@ def test_cli_flip_end_to_end(tmp_path):
     assert after["normal_flipped"].astype(bool).sum() == 50
 
 
+def test_flip_coord_scale_forwarded_to_preview(tmp_path, monkeypatch):
+    surfaces = tmp_path / "surfaces"
+    surfaces.mkdir()
+    points, triangles = two_patches()
+    arrays = standard_arrays(cell_centres(points, triangles))
+    write_vtp(surfaces / "foo_ts_001.mrc.labels_IMM.vtp", points, triangles, arrays)
+    seen = {}
+    from tomo_toolshed.vtp_normals import preview as preview_mod
+    monkeypatch.setattr(preview_mod, "preview_vtp", lambda *a, **k: seen.update(k))
+    res = CliRunner().invoke(vtp_normals, ["flip", "--vtp-dir", str(surfaces), "--flip", "ts_001:IMM:0",
+                                           "--split-dist", "0", "--coord-scale", "1.0"])
+    assert res.exit_code == 0, res.output
+    assert seen.get("coord_scale") == 1.0  # the flip --coord-scale reaches the preview
+
+
 def test_cli_preview_without_tomogram_writes_png(tmp_path):
     points, triangles = two_patches()
     arrays = standard_arrays(cell_centres(points, triangles))

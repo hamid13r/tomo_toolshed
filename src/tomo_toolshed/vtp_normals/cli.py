@@ -107,13 +107,16 @@ def preview(vtp_glob, tomo_dir, tomo_pattern, normal_array, dist, apix, coord_sc
               help="Write a .flipped.normals.png preview of each output.")
 @click.option("--tomo-dir", default="tomo", show_default=True, type=click.Path(file_okay=False),
               help="Tomograms for the preview background.")
+@click.option("--coord-scale", type=float, default=10.0, show_default=True,
+              help="Multiply surface coordinates by this to get Angstrom (10 for nm surfaces); "
+                   "only used to place the surface on the --preview background.")
 @click.option("--split-column", default=core.DEFAULT_SPLIT_COLUMN, show_default=True,
               help=f"Cell array pieces are split on where it crosses --split-dist; {_SPLIT_HELP}.")
 @click.option("--split-dist", type=float, default=core.SPLIT_DIST, show_default=True,
               help=f"Split pieces where --split-column crosses this; {_SPLIT_HELP}.")
 @click.option("--min-triangles", type=int, default=core.MIN_TRIANGLES, show_default=True,
               help=f"Split parts smaller than this are merged into a neighbour; {_SPLIT_HELP}.")
-def flip(flips, flip_file, vtp_dir, arrays, curvature, preview, tomo_dir, split_column,
+def flip(flips, flip_file, vtp_dir, arrays, curvature, preview, tomo_dir, coord_scale, split_column,
          split_dist, min_triangles):
     """Write <vtp>.flipped.vtp with the normals of the listed pieces negated."""
     parsed = core.parse_flips(flips, flip_file)
@@ -134,8 +137,9 @@ def flip(flips, flip_file, vtp_dir, arrays, curvature, preview, tomo_dir, split_
         out_path = core.flip_surface(vtp_path, piece_ids, array_names, curvature, split_dist, min_triangles,
                                      split_column)
         if preview_mod is not None:
-            preview_mod.preview_vtp(out_path, tomo_dir=tomo_dir, split_dist=split_dist,
-                                    min_triangles=min_triangles, split_column=split_column)
+            preview_mod.preview_vtp(out_path, tomo_dir=tomo_dir, coord_scale=coord_scale,
+                                    split_dist=split_dist, min_triangles=min_triangles,
+                                    split_column=split_column)
 
 
 # ---------------------------------------------------------------------- curate

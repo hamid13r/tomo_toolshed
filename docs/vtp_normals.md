@@ -208,6 +208,7 @@ lam12_ts_004:IMM:1,2,4
 | `--curvature` / `--no-curvature` | on | Also update the curvature arrays of flipped pieces. |
 | `--preview` / `--no-preview` | on | Write a `.flipped.normals.png` preview of each output. |
 | `--tomo-dir` | `tomo` | Tomograms for the preview background. |
+| `--coord-scale` | `10.0` | Multiply surface coordinates by this to get Å (10 for nm surfaces); only used to place the surface on the `--preview` background. |
 | `--split-column` | `OMM_dist` | Cell array pieces are split on. |
 | `--split-dist` | `20.0` | Split where `--split-column` crosses this. |
 | `--min-triangles` | `50` | Smaller split parts are merged into a neighbour. |
