@@ -22,6 +22,7 @@ from .filament_cleanup.cli import filament_cleanup
 from .xml_reconstruct.cli import xml_reconstruct
 from .xml_reconstruct.compare_cli import compare_tomograms
 from .segmentation_eroder.cli import erode_cmd as erode
+from .granule_picker.cli import pick_granules
 from .vtp_normals.cli import vtp_normals
 
 
@@ -36,6 +37,7 @@ def tomo_toolshed():
     skipped-views      Prune skipped etomo views from WarpTools tilt-series XML.
     curate             Curate a mask, or particle picks (star/txt/box), over a tomogram.
     erode              Erode a binary segmentation MRC in XY (default) or 3D.
+    pick-granules      Threshold dark granules inside a mask, with a live GUI.
     add-defocus        Add Warp XML average defocus to an IsoNet star file.
     trace-filaments    Trace filaments in a mask into a RELION helical star file.
     dipole2star        Collapse manual dipole picks into an oriented-particle star file.
@@ -53,6 +55,7 @@ def tomo_toolshed():
 tomo_toolshed.add_command(skipped_views, name="skipped-views")
 tomo_toolshed.add_command(curate, name="curate")
 tomo_toolshed.add_command(erode, name="erode")
+tomo_toolshed.add_command(pick_granules, name="pick-granules")
 tomo_toolshed.add_command(add_defocus, name="add-defocus")
 tomo_toolshed.add_command(trace_filaments, name="trace-filaments")
 tomo_toolshed.add_command(dipole2star, name="dipole2star")
@@ -106,6 +109,10 @@ tomo_toolshed.add_command(_skipped_views_alias, name="skipped_views")
 _trace_filaments_alias = copy.copy(trace_filaments)
 _trace_filaments_alias.hidden = True
 tomo_toolshed.add_command(_trace_filaments_alias, name="trace_filaments")
+
+_pick_granules_alias = copy.copy(pick_granules)
+_pick_granules_alias.hidden = True
+tomo_toolshed.add_command(_pick_granules_alias, name="pick_granules")
 
 _vtp_normals_alias = copy.copy(vtp_normals)
 _vtp_normals_alias.hidden = True

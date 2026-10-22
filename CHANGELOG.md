@@ -8,6 +8,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **pick-granules**: new tool to threshold dark granules (e.g. mitochondrial
+  granules) inside a binary mask. GUI with Z/Y views of the tomogram, the mask
+  and the picked voxels overlaid, a histogram of in-mask values with a live
+  threshold slider (or typed value/percentile), XY mask erosion and min island
+  size. Writes a uint8 0/1 MRC with the mask's voxel size and origin, for
+  cleanup with `curate`. Options `--threshold`/`--percentile`, `--bright`,
+  `--blur`, `--mask-erode`, `--erode-3d`, `--min-size`, `--no-gui`, `--overwrite`.
 - **vtp-normals**: new tool (click group with three subcommands) to preview,
   curate and flip the normals of pycurv/morphometrics `.vtp` membrane surfaces.
   The surface is split into connected pieces, each split again where a cell
