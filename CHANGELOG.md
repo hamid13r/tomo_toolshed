@@ -26,6 +26,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     match between `preview`/`curate` and `flip` (with `--split-dist` and
     `--min-triangles`) or piece ids will not line up. A surface without the
     column falls back to connected components only.
+  - `curate` and `preview` gain `--bin N` (mean-pool the tomogram by `N` in 3D
+    before display; memory-light via `mrcfile.mmap` in Z-slab chunks, so
+    `--bin 2` on a multi-GB tomogram stays well under the full float32 volume)
+    and `--gaussian SIGMA` (Gaussian blur, sigma in Å). `--apix` stays the
+    unbinned pixel size; surface coordinates, `--dist` and the alignment check
+    use the effective pixel size `apix * bin`; `slab` and arrow width stay in
+    binned display voxels. Binning never affects the vtp — piece ids and the
+    written `.flipped.vtp` are byte-identical to `--bin 1`. `curate` also has a
+    live **blur (Å)** slider on the displayed slices. These options are not on
+    `flip`.
+  - `curate` now opens every view on the **whole tomogram** and never auto-zooms:
+    clicking a table row, Prev/Next, up/down and membrane clicks only highlight
+    the piece and move the slices, keeping your current zoom. Use the matplotlib
+    toolbar to zoom/pan and **Full view** to reset.
   - Adds a `vtk>=9.1` dependency (the one heavy dependency here, ~100 MB).
 - **erode**: new tool. Erodes a binary segmentation MRC `--iterations` times in
   the XY plane per Z slice (default) or in 3D (`--3d`), with `--connectivity`

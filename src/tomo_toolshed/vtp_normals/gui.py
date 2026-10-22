@@ -15,8 +15,12 @@ arrow ``--dist`` Angstrom along its normal (projected onto the view plane):
 green for pieces kept as they are, red for pieces marked to flip. The arrows
 follow the flip state live.
 
+Every view opens on the whole tomogram and never auto-zooms; use the matplotlib
+toolbar to zoom and pan, and the Full view button to reset. Highlighting a piece
+or moving the slices keeps the current zoom.
+
 Controls
-  table, click a row         highlight the piece, zoom to it and move all slices onto it
+  table, click a row         highlight the piece and move all slices onto it
   table, click the flip cell toggle keep / FLIP for that piece
   click a membrane in a view highlight that piece (does not toggle)
   click elsewhere in a view  move the crosshair (the other two slices) there
@@ -24,7 +28,7 @@ Controls
   up / down, Prev / Next     highlight the previous / next piece
   t, Toggle flip             toggle the highlighted piece
   3D view                    rotatable 3D plot of the highlighted piece's normals
-  Full view                  zoom all views out to the whole tomogram
+  Full view                  reset all views to the whole tomogram
   q, Done (or close)         flip the FLIP pieces into <name>.flipped.vtp
   x, Stop                    stop the session without writing this surface
 
@@ -55,7 +59,7 @@ from matplotlib.patches import Rectangle
 from matplotlib.widgets import Button, Slider
 from vtk.util.numpy_support import vtk_to_numpy
 
-from . import core, preview
+from . import core, preview, volume
 from .core import MIN_TRIANGLES, SPLIT_DIST, DEFAULT_SPLIT_COLUMN
 
 KEEP_COLOR = "limegreen"
@@ -64,17 +68,7 @@ MEMBRANE_COLOR = "cyan"
 HIGHLIGHT_COLOR = "yellow"
 MAX_POINTS_PER_VIEW = 20000
 ARROW_WIDTH_VOX = 1.0  # shaft width in voxels (head is 3.5x wider), so arrows scale with zoom
-ZOOM_MARGIN_VOX = 30
 TABLE_ROWS = 26
-
-
-def load_tomogram_uint8(path):
-    """Read a tomogram as (Z, Y, X) uint8, contrast-stretched to its 0.5-99.5 percentiles."""
-    with mrcfile.open(path, permissive=True) as mrc:
-        vol = np.asarray(mrc.data, dtype=np.float32)
-    lo, hi = np.percentile(vol[::4, ::4, ::4], [0.5, 99.5])
-    vol = np.clip((vol - lo) / max(hi - lo, 1e-6) * 255.0, 0, 255)
-    return vol.astype(np.uint8)
 
 
 class Surface:
@@ -102,10 +96,8 @@ class Surface:
         self.labels = labels[keep][order]
         self.centre_point = {}
         self.z_range = {}
-        self.bbox = {}
         for piece in self.pieces:
             pts = self.points[self.labels == piece]
-            self.bbox[piece] = (pts.min(axis=0), pts.max(axis=0))
             median = np.median(pts, axis=0)
             self.centre_point[piece] = pts[np.argmin(np.linalg.norm(pts - median, axis=1))]
             self.z_range[piece] = (int(pts[:, 2].min()), int(np.ceil(pts[:, 2].max())))
@@ -118,7 +110,7 @@ class NormalCurator:
     VIEWS = (("z", 0, 1, 2), ("y", 0, 2, 1), ("x", 1, 2, 0))
 
     def __init__(self, tomo, surface, flip, title, dist_vox, slab=1.5, arrow_every=10, review=False,
-                 split_column=DEFAULT_SPLIT_COLUMN):
+                 split_column=DEFAULT_SPLIT_COLUMN, apix_binned=None):
         self.tomo = tomo
         self.surf = surface
         self.flip = set(int(p) for p in flip)
@@ -127,6 +119,8 @@ class NormalCurator:
         self.arrow_every = arrow_every
         self.review = review
         self.split_column = split_column
+        self.apix_binned = apix_binned  # binned pixel size (A), for the blur slider's A->voxel
+        self.blur_vox = 0.0  # extra 2D Gaussian on the displayed slices only (voxels)
         self.stop = False
         self.highlight = int(surface.pieces[0]) if len(surface.pieces) else None
         self.table_offset = 0
@@ -141,8 +135,6 @@ class NormalCurator:
         self.pos = np.clip(self.pos, 0, np.array(self.shape[::-1]) - 1)
         self.vmin, self.vmax = 0, 255
         self._build(title)
-        if self.highlight is not None:
-            self.zoom_to_piece(self.highlight)
         self.refresh()
 
     # ------------------------------------------------------------------ setup
@@ -174,6 +166,7 @@ class NormalCurator:
             ax.set_xlim(extent[0], extent[1])
             ax.set_ylim(extent[2], extent[3])
             ax.set_aspect("equal")
+            ax.set_autoscale_on(False)  # slice/arrow redraws never change the user's zoom
 
         # table
         self.ax_tab = self.fig.add_axes([0.765, 0.27, 0.225, 0.64])
@@ -206,6 +199,9 @@ class NormalCurator:
         self.s_every = slider([0.47, 0.085, 0.22, 0.02], "arrow every", 1, 50, self.arrow_every, 1)
         self.s_dist.on_changed(self._on_display_slider)
         self.s_every.on_changed(self._on_display_slider)
+        # extra live blur of the displayed slices only (sigma in A); 0 = off
+        self.s_blur = slider([0.47, 0.055, 0.22, 0.02], "blur (A)", 0, 50, 0, 1)
+        self.s_blur.on_changed(self._on_display_slider)
 
         # buttons
         def button(rect, label, callback):
@@ -235,10 +231,14 @@ class NormalCurator:
         x, y, z = self.pos
         nz, ny, nx = self.shape
         if self.tomo is not None:
-            def thick(lo, hi, axis):  # 3-slice average along one axis
+            def thick(lo, hi, axis):  # 3-slice average along one axis, optionally blurred in 2D
                 index = [slice(None)] * 3
                 index[axis] = slice(max(lo - 1, 0), hi + 2)
-                return self.tomo[tuple(index)].mean(axis=axis)
+                img = self.tomo[tuple(index)].mean(axis=axis)
+                if self.blur_vox > 0:
+                    from scipy.ndimage import gaussian_filter
+                    img = gaussian_filter(img.astype(np.float32), self.blur_vox)
+                return img
             self.img["z"].set_data(thick(z, z, 0))
             self.img["y"].set_data(thick(y, y, 1))
             self.img["x"].set_data(thick(x, x, 2))
@@ -330,14 +330,6 @@ class NormalCurator:
         self._suspend = False
         self.refresh()
 
-    def zoom_to_piece(self, piece):
-        """Zoom every view to the piece's bounding box (+ margin), keeping equal aspect."""
-        lo, hi = self.surf.bbox[piece]
-        lo, hi = lo - ZOOM_MARGIN_VOX, hi + ZOOM_MARGIN_VOX
-        for name, h, v, _ in self.VIEWS:
-            self.ax[name].set_xlim(lo[h], hi[h])
-            self.ax[name].set_ylim(lo[v], hi[v])
-
     def full_view(self):
         for name, h, v, _ in self.VIEWS:
             x0, x1, y0, y1 = self.img[name].get_extent()
@@ -350,7 +342,6 @@ class NormalCurator:
         position = int(np.flatnonzero(self.surf.pieces == piece)[0])
         if not self.table_offset <= position < self.table_offset + TABLE_ROWS:
             self.table_offset = max(0, position - TABLE_ROWS // 2)
-        self.zoom_to_piece(piece)
         self.set_pos(self.surf.centre_point[piece])
 
     def step_highlight(self, step):
@@ -413,6 +404,8 @@ class NormalCurator:
         self.slab = float(self.s_slab.val)
         self.dist_vox = float(self.s_dist.val)
         self.arrow_every = int(self.s_every.val)
+        blur_ang = float(self.s_blur.val)
+        self.blur_vox = blur_ang / self.apix_binned if (blur_ang > 0 and self.apix_binned) else blur_ang
         self.refresh()
 
     def _on_click(self, event):
@@ -501,7 +494,7 @@ def existing_flips(out_path, apix, coord_scale, min_triangles, split_dist, split
 
 
 def run_curation(tomo_file, vtp, vtp_glob, tomo_dir, tomo_pattern, skip_done, dist, apix, coord_scale,
-                 split_dist, min_triangles, arrow_every, split_column):
+                 split_dist, min_triangles, arrow_every, split_column, bin_factor=1, gaussian=0.0):
     """Curate normal orientations piece by piece in 3D, then flip and review."""
     if plt.get_backend().lower() == "agg":
         raise click.ClickException("no interactive matplotlib backend (is DISPLAY set? try ssh -X)")
@@ -512,6 +505,9 @@ def run_curation(tomo_file, vtp, vtp_glob, tomo_dir, tomo_pattern, skip_done, di
             click.echo(f"Pixel size not given, using {apix:g} A")
         else:
             click.echo(f"Pixel size from the MRC header: {apix:g} A")
+    # --apix stays the UNBINNED pixel size; everything mapping surface coords to
+    # display voxels uses the binned (effective) pixel size.
+    apix_eff = apix * bin_factor
     if vtp:
         vtp_paths = [vtp]
     else:
@@ -528,16 +524,20 @@ def run_curation(tomo_file, vtp, vtp_glob, tomo_dir, tomo_pattern, skip_done, di
         tomo_path = tomo_file or core.find_tomogram(vtp_path, tomo_dir, tomo_pattern)
         if tomo_path is None:
             click.echo("  WARNING: tomogram not found, showing surfaces without background")
-        tomo = load_tomogram_uint8(tomo_path) if tomo_path else None
-        surface = Surface(vtp_path, apix, coord_scale, min_triangles, split_dist, split_column)
+        tomo = volume.load_tomogram_uint8(tomo_path, bin_factor, gaussian, apix_eff) if tomo_path else None
+        if tomo is not None:
+            click.echo(f"  display volume {tomo.shape} (Z,Y,X), effective pixel size {apix_eff:g} A"
+                       f" (bin {bin_factor}" + (f", gaussian {gaussian:g} A)" if gaussian else ")"))
+        surface = Surface(vtp_path, apix_eff, coord_scale, min_triangles, split_dist, split_column)
         click.echo(f"  {len(surface.pieces)} pieces (split at {split_column} {split_dist:g})")
         if tomo is not None:
             check_alignment(surface, tomo.shape)
-        flip = existing_flips(out_path, apix, coord_scale, min_triangles, split_dist, split_column)
+        flip = existing_flips(out_path, apix_eff, coord_scale, min_triangles, split_dist, split_column)
         if flip:
             click.echo(f"  starting from the flips in the existing .flipped.vtp: {sorted(flip)}")
         flip, stop = NormalCurator(tomo, surface, flip, f"[{n}/{len(vtp_paths)}] {name}",
-                                   dist / apix, arrow_every=arrow_every, split_column=split_column).run()
+                                   dist / apix_eff, arrow_every=arrow_every, split_column=split_column,
+                                   apix_binned=apix_eff).run()
         if stop:
             click.echo("Stopped; this surface was not written.")
             return
@@ -552,11 +552,11 @@ def run_curation(tomo_file, vtp, vtp_glob, tomo_dir, tomo_pattern, skip_done, di
             preview.preview_vtp(out_path, tomo_dir=tomo_dir, tomo_pattern=tomo_pattern, tomo_path=tomo_path,
                                 dist=dist, apix=apix, coord_scale=coord_scale, min_triangles=min_triangles,
                                 split_dist=split_dist, split_column=split_column)
-            review = Surface(out_path, apix, coord_scale, min_triangles, split_dist, split_column)
+            review = Surface(out_path, apix_eff, coord_scale, min_triangles, split_dist, split_column)
             changes, stop = NormalCurator(tomo, review, set(),
                                           f"REVIEW [{n}/{len(vtp_paths)}] {os.path.basename(out_path)}",
-                                          dist / apix, arrow_every=arrow_every, review=True,
-                                          split_column=split_column).run()
+                                          dist / apix_eff, arrow_every=arrow_every, review=True,
+                                          split_column=split_column, apix_binned=apix_eff).run()
             if stop:
                 click.echo("Stopped after writing this surface.")
                 return

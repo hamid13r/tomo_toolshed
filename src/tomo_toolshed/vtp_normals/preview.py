@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 import mrcfile
 import numpy as np
 
-from . import core
+from . import core, volume
 from .core import MIN_TRIANGLES, SPLIT_DIST, DEFAULT_SPLIT_COLUMN
 
 
@@ -38,11 +38,14 @@ def preview_png_path(vtp_path):
     return os.path.splitext(vtp_path)[0] + ".normals.png"
 
 
-def plot_piece(ax, tomo, z_index, pts_vox, tips_vox, slab, line_every, title):
+def plot_piece(ax, tomo, z_index, pts_vox, tips_vox, slab, line_every, title, gaussian_vox=0.0):
     nz, ny, nx = tomo.shape if tomo is not None else (None, None, None)
     if tomo is not None:
         z_lo, z_hi = max(z_index - 1, 0), min(z_index + 2, nz)
         img = np.asarray(tomo[z_lo:z_hi], dtype=np.float32).mean(axis=0)
+        if gaussian_vox > 0:
+            from scipy.ndimage import gaussian_filter
+            img = gaussian_filter(img, gaussian_vox)
         lo, hi = np.percentile(img, [1, 99])
         ax.imshow(img, cmap="gray", vmin=lo, vmax=hi, origin="lower", interpolation="nearest")
     in_slab = np.abs(pts_vox[:, 2] - z_index) <= slab
@@ -67,10 +70,15 @@ def plot_piece(ax, tomo, z_index, pts_vox, tips_vox, slab, line_every, title):
 
 def make_preview_figure(vtp_path, tomo_dir="tomo", tomo_pattern="{stem}.mrc_9.98Apx.mrc", normal_array="n_v",
                         dist=150.0, apix=9.98, coord_scale=10.0, slab=1.5, min_triangles=MIN_TRIANGLES,
-                        line_every=10, split_dist=SPLIT_DIST, split_column=DEFAULT_SPLIT_COLUMN, tomo_path=None):
+                        line_every=10, split_dist=SPLIT_DIST, split_column=DEFAULT_SPLIT_COLUMN, tomo_path=None,
+                        bin_factor=1, gaussian=0.0):
     """Build the preview figure; return (fig, {piece id: axes}) for pieces with >= min_triangles.
 
-    ``tomo_path`` overrides the tomogram found from tomo_dir/tomo_pattern.
+    ``tomo_path`` overrides the tomogram found from tomo_dir/tomo_pattern. With
+    ``bin_factor`` > 1 the tomogram is mean-pooled before display and the effective
+    pixel size ``apix * bin_factor`` is used for the surface-to-voxel mapping;
+    ``--apix`` stays the unbinned pixel size. ``gaussian`` (sigma in Angstrom) is
+    applied in 2D to each panel's slab-averaged image, using the effective pixel size.
     """
     click.echo(f"\n=== {os.path.basename(vtp_path)} ===")
     poly = core.read_polydata(vtp_path)
@@ -81,15 +89,23 @@ def make_preview_figure(vtp_path, tomo_dir="tomo", tomo_pattern="{stem}.mrc_9.98
     click.echo(f"  {len(triangles)} triangles, {len(sizes)} piece(s), "
                f"{len(keep)} with >= {min_triangles} triangles")
 
-    pts_vox = centres * coord_scale / apix
-    tips_vox = (centres * coord_scale + normals * dist) / apix
+    apix_eff = apix * bin_factor
+    pts_vox = centres * coord_scale / apix_eff
+    tips_vox = (centres * coord_scale + normals * dist) / apix_eff
+    gaussian_vox = volume.gaussian_sigma_voxels(gaussian, apix_eff)
 
     if tomo_path is None:
         tomo_path = core.find_tomogram(vtp_path, tomo_dir, tomo_pattern)
     if tomo_path is None:
         click.echo("  WARNING: tomogram not found, plotting without background")
-    mrc = mrcfile.mmap(tomo_path, permissive=True) if tomo_path else None
-    tomo = mrc.data if mrc else None
+    # bin>1: read the pooled volume into memory (memory-light, Z-slab chunks); bin==1:
+    # keep the mmap so a full tomogram is never loaded whole.
+    mrc = tomo = None
+    if tomo_path and bin_factor > 1:
+        tomo = volume.bin_volume(tomo_path, bin_factor)
+    elif tomo_path:
+        mrc = mrcfile.mmap(tomo_path, permissive=True)
+        tomo = mrc.data
 
     n_cols = min(len(keep), 3)
     n_rows = math.ceil(len(keep) / n_cols)
@@ -102,7 +118,8 @@ def make_preview_figure(vtp_path, tomo_dir="tomo", tomo_pattern="{stem}.mrc_9.98
         if tomo is not None:
             z_index = min(max(z_index, 0), tomo.shape[0] - 1)
         plot_piece(ax, tomo, z_index, pts_vox[sel], tips_vox[sel], slab, line_every,
-                   f"piece {piece} ({sizes[piece]} triangles, {split_column} {split_median[piece]:.0f})")
+                   f"piece {piece} ({sizes[piece]} triangles, {split_column} {split_median[piece]:.0f})",
+                   gaussian_vox=gaussian_vox)
         click.echo(f"  piece {piece}: {sizes[piece]} triangles, median {split_column} {split_median[piece]:.1f}, "
                    f"central z = {z_index}")
     if mrc:

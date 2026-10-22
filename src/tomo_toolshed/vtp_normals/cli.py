@@ -68,8 +68,14 @@ def vtp_normals():
               help=f"Skip pieces with fewer triangles than this; {_SPLIT_HELP}.")
 @click.option("--line-every", type=int, default=10, show_default=True,
               help="Draw a membrane-to-tip line for every Nth point.")
+@click.option("--bin", "bin_factor", type=click.IntRange(min=1), default=1, show_default=True,
+              help="Mean-pool the tomogram by this factor in 3D before display; --apix stays the "
+                   "unbinned pixel size (surface coords use apix*bin).")
+@click.option("--gaussian", type=float, default=0.0, show_default=True,
+              help="Gaussian blur sigma (Angstrom); applied in 2D to each panel's slab image "
+                   "(converted to voxels with the effective pixel size). 0 = off.")
 def preview(vtp_glob, tomo_dir, tomo_pattern, normal_array, dist, apix, coord_scale, slab, split_column,
-            split_dist, min_triangles, line_every):
+            split_dist, min_triangles, line_every, bin_factor, gaussian):
     """Write <vtp>.normals.png previews of the normals of each surface piece."""
     from . import preview as preview_mod
 
@@ -82,7 +88,7 @@ def preview(vtp_glob, tomo_dir, tomo_pattern, normal_array, dist, apix, coord_sc
         preview_mod.preview_vtp(vtp_path, tomo_dir, tomo_pattern=tomo_pattern, normal_array=normal_array,
                                 dist=dist, apix=apix, coord_scale=coord_scale, slab=slab,
                                 min_triangles=min_triangles, line_every=line_every, split_dist=split_dist,
-                                split_column=split_column)
+                                split_column=split_column, bin_factor=bin_factor, gaussian=gaussian)
 
 
 # ------------------------------------------------------------------------ flip
@@ -160,13 +166,21 @@ def flip(flips, flip_file, vtp_dir, arrays, curvature, preview, tomo_dir, split_
                    f"are not listed (and never flipped); {_SPLIT_HELP}.")
 @click.option("--arrow-every", type=int, default=10, show_default=True,
               help="Draw a normal arrow for every Nth surface point; adjustable in the viewer.")
+@click.option("--bin", "bin_factor", type=click.IntRange(min=1), default=1, show_default=True,
+              help="Mean-pool the tomogram by this factor in 3D before display; --apix stays the "
+                   "unbinned pixel size (surface coords use apix*bin). slab and arrow width are in "
+                   "binned display voxels.")
+@click.option("--gaussian", type=float, default=0.0, show_default=True,
+              help="Gaussian blur sigma (Angstrom); applied in 3D to the display volume after binning "
+                   "(converted to voxels with the effective pixel size). 0 = off.")
 def curate(tomo_file, vtp, vtp_glob, tomo_dir, tomo_pattern, skip_done, dist, apix, coord_scale, split_column,
-           split_dist, min_triangles, arrow_every):
+           split_dist, min_triangles, arrow_every, bin_factor, gaussian):
     """Curate normal orientations piece by piece in 3D, then flip and review."""
     from . import gui
 
     gui.run_curation(tomo_file, vtp, vtp_glob, tomo_dir, tomo_pattern, skip_done, dist, apix, coord_scale,
-                     split_dist, min_triangles, arrow_every, split_column)
+                     split_dist, min_triangles, arrow_every, split_column, bin_factor=bin_factor,
+                     gaussian=gaussian)
 
 
 if __name__ == "__main__":

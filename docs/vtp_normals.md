@@ -71,6 +71,12 @@ reads it from the MRC header of `--tomo`, falling back to 9.98). If the surface
 does not land inside the tomogram, `curate` prints a warning so you can fix
 `--apix` / `--coord-scale`.
 
+`--apix` always means the **unbinned** pixel size. When you display a binned
+tomogram (`--bin N`), the surface is mapped to voxels with the **effective**
+pixel size `--apix * N`, and the slices, slab and arrows are all in those binned
+display voxels. Binning never touches the surface or the written
+`.flipped.vtp` — piece ids and output are byte-identical to `--bin 1`.
+
 ## `preview`
 
 Writes `<name>.normals.png` next to each `.vtp` matched by `--vtp-glob`, one
@@ -99,9 +105,14 @@ number from the panel title and pass it to `flip`.
 | `--split-dist` | `20.0` | Split where `--split-column` crosses this; `0` = connected pieces only. |
 | `--min-triangles` | `50` | Skip pieces with fewer triangles than this. |
 | `--line-every` | `10` | Draw a membrane-to-tip line for every Nth point. |
+| `--bin` | `1` | Mean-pool the tomogram by this factor in 3D before display (crop each axis to a multiple of it first). `--apix` stays the unbinned pixel size; coordinates use `apix * bin`. |
+| `--gaussian` | `0.0` | Gaussian blur sigma in **Å**, applied in 2D to each panel's slab-averaged image (converted to voxels with the effective pixel size). `0` = off. |
 
 If no tomogram is found, the panels are drawn without a background (a warning is
 printed).
+
+`preview` applies `--gaussian` in 2D to each panel image (not the whole volume),
+which is why the same Å value looks the same at any `--bin`.
 
 ## `curate`
 
@@ -114,11 +125,16 @@ updating live as you toggle. Needs an interactive matplotlib backend (a display;
 e.g. `ssh -X` or a desktop/VNC session) — on a headless/`Agg` backend it exits
 with an error.
 
+Every view opens on the **whole tomogram** and never auto-zooms. Use the
+matplotlib toolbar to zoom and pan; **Full view** resets. Highlighting a piece or
+moving the slices (rows, Prev/Next, scroll, crosshair clicks) keeps your current
+zoom — only the highlight, the slices and the crosshair move.
+
 ### Controls
 
 | Action | Effect |
 |---|---|
-| table, click a row | highlight the piece, zoom to it, move all slices onto it |
+| table, click a row | highlight the piece and move all slices onto it |
 | table, click the flip cell | toggle keep / FLIP for that piece |
 | click a membrane in a view | highlight that piece (does not toggle) |
 | click elsewhere in a view | move the crosshair (the other two slices) there |
@@ -126,12 +142,14 @@ with an error.
 | up / down, Prev / Next | highlight the previous / next piece |
 | `t`, Toggle flip | toggle the highlighted piece |
 | 3D view | rotatable 3D plot of the highlighted piece's normals |
-| Full view | zoom all views out to the whole tomogram |
+| Full view | reset all views to the whole tomogram |
 | `q`, Done (or close window) | flip the FLIP pieces into `<name>.flipped.vtp` |
 | `x`, Stop | stop the session without writing this surface |
 
 The piece table shows, per piece: id, triangle count, z range, the median
-`--split-column` value, and the keep/FLIP state.
+`--split-column` value, and the keep/FLIP state. The **blur (Å)** slider adds an
+extra live 2D Gaussian to the three displayed slices only (sigma in Å, starting
+at 0); it redraws without reloading or refiltering the volume.
 
 After **Done**, the written `.flipped.vtp` is reopened for **review** (pieces
 flipped in the file are marked `*`). Toggling pieces there and pressing Done
@@ -156,6 +174,16 @@ already have one).
 | `--split-dist` | `20.0` | Split where `--split-column` crosses this; `0` = connected pieces only. |
 | `--min-triangles` | `50` | Smaller split parts are merged into a neighbour; isolated pieces this small are not listed. |
 | `--arrow-every` | `10` | Draw a normal arrow for every Nth surface point; adjustable in the viewer. |
+| `--bin` | `1` | Mean-pool the tomogram by this factor in 3D before display (crop each axis to a multiple of it first). `--apix` stays the unbinned pixel size; coordinates use `apix * bin`. `slab` and arrow width stay in binned display voxels. |
+| `--gaussian` | `0.0` | Gaussian blur sigma in **Å**, applied in 3D to the display volume after binning (converted to voxels with the effective pixel size, so the same value looks the same at any `--bin`). `0` = off. |
+
+Binning is memory-light: the tomogram is read through `mrcfile.mmap` and pooled
+in Z-slab chunks, so `--bin 2` on a multi-GB tomogram stays well under the full
+float32 volume. Example on a binned, denoised view:
+
+```bash
+tomo_toolshed vtp-normals curate --vtp surfaces/..._IMM.vtp --tomo rec.mrc --bin 2 --gaussian 20
+```
 
 ## `flip`
 

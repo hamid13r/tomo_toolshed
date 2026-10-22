@@ -435,6 +435,178 @@ def test_cli_curate_errors_on_agg_backend(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# volume: binning, Gaussian, and the display loader (--bin / --gaussian).
+# ---------------------------------------------------------------------------
+def _write_mrc(path, data):
+    import mrcfile
+    with mrcfile.new(str(path), overwrite=True) as m:
+        m.set_data(np.ascontiguousarray(data, np.float32))
+    return str(path)
+
+
+def test_bin_volume_shape_and_block_means(tmp_path):
+    from tomo_toolshed.vtp_normals import volume
+    rng = np.random.default_rng(1)
+    vol = rng.random((7, 5, 9)).astype(np.float32)  # odd sizes, cropped to 6/4/8
+    path = _write_mrc(tmp_path / "t.mrc", vol)
+    binned = volume.bin_volume(path, 2)
+    assert binned.shape == (3, 2, 4)
+    # explicit block mean of the first 2x2x2 block
+    assert np.isclose(binned[0, 0, 0], vol[:2, :2, :2].mean())
+
+
+def test_bin1_matches_current_loader_exactly(tmp_path):
+    from tomo_toolshed.vtp_normals import volume
+    rng = np.random.default_rng(2)
+    vol = rng.random((8, 6, 10)).astype(np.float32) * 100
+    path = _write_mrc(tmp_path / "t.mrc", vol)
+    # reference = the previous plain loader
+    ref = np.asarray(vol, dtype=np.float32)
+    lo, hi = np.percentile(ref[::4, ::4, ::4], [0.5, 99.5])
+    ref_u8 = np.clip((ref - lo) / max(hi - lo, 1e-6) * 255.0, 0, 255).astype(np.uint8)
+    got = volume.load_tomogram_uint8(path, bin_factor=1, gaussian_ang=0.0, apix=6.65)
+    assert np.array_equal(got, ref_u8)
+    assert np.array_equal(volume.bin_volume(path, 1), ref)
+
+
+def test_chunked_binning_matches_full_volume_reference(tmp_path):
+    from tomo_toolshed.vtp_normals import volume
+    rng = np.random.default_rng(3)
+    vol = rng.random((12, 10, 14)).astype(np.float32)
+    path = _write_mrc(tmp_path / "t.mrc", vol)
+    for b in (2, 3):
+        oz, oy, ox = 12 // b, 10 // b, 14 // b
+        ref = (vol[:oz * b, :oy * b, :ox * b]
+               .reshape(oz, b, oy, b, ox, b).mean(axis=(1, 3, 5)))
+        assert np.allclose(volume.bin_volume(path, b), ref, atol=1e-5), b
+
+
+def test_gaussian_zero_is_noop(tmp_path):
+    from tomo_toolshed.vtp_normals import volume
+    rng = np.random.default_rng(4)
+    vol = rng.random((8, 6, 10)).astype(np.float32)
+    path = _write_mrc(tmp_path / "t.mrc", vol)
+    off = volume.load_tomogram_uint8(path, bin_factor=1, gaussian_ang=0.0, apix=6.65)
+    noapix = volume.load_tomogram_uint8(path, bin_factor=1, gaussian_ang=20.0, apix=None)
+    assert np.array_equal(off, volume.stretch_to_uint8(volume.bin_volume(path, 1)))
+    assert np.array_equal(off, noapix)  # no apix -> can't convert sigma -> no filtering
+
+
+def test_gaussian_sigma_angstrom_to_voxels():
+    from tomo_toolshed.vtp_normals import volume
+    assert volume.gaussian_sigma_voxels(20.0, 6.65) == pytest.approx(20.0 / 6.65)
+    assert volume.gaussian_sigma_voxels(20.0, 13.3) == pytest.approx(20.0 / 13.3)  # bin 2: apix doubled
+    # same Angstrom sigma is half as many voxels at bin 2
+    assert (volume.gaussian_sigma_voxels(20.0, 13.3)
+            == pytest.approx(volume.gaussian_sigma_voxels(20.0, 6.65) / 2))
+    assert volume.gaussian_sigma_voxels(0.0, 6.65) == 0.0
+
+
+def test_surface_voxel_coords_halve_with_bin2(tmp_path):
+    from tomo_toolshed.vtp_normals import gui
+    points, triangles = grid(9, 5)
+    arrays = standard_arrays(cell_centres(points, triangles))
+    path = write_vtp(tmp_path / "s.vtp", points, triangles, arrays)
+    s1 = gui.Surface(path, apix=6.65, coord_scale=10.0, min_triangles=0, split_dist=0.0)
+    s2 = gui.Surface(path, apix=13.3, coord_scale=10.0, min_triangles=0, split_dist=0.0)  # apix*bin, bin=2
+    assert np.allclose(s2.points, s1.points / 2)
+
+
+# ---------------------------------------------------------------------------
+# curate zoom behaviour (headless, Agg): full view, no auto-zoom.
+# ---------------------------------------------------------------------------
+def _agg_curator(tmp_path):
+    import matplotlib
+    matplotlib.use("Agg", force=True)
+    from tomo_toolshed.vtp_normals import gui
+    points, triangles = grid(9, 5)
+    arrays = standard_arrays(cell_centres(points, triangles))
+    path = write_vtp(tmp_path / "s.vtp", points, triangles, arrays)
+    surf = gui.Surface(path, apix=1.0, coord_scale=1.0, min_triangles=0, split_dist=0.0)
+    tomo = np.zeros((10, 12, 14), np.uint8)
+    cur = gui.NormalCurator(tomo, surf, set(), "test", dist_vox=3.0, apix_binned=1.0)
+    return gui, cur
+
+
+def _limits(cur):
+    return {k: (cur.ax[k].get_xlim(), cur.ax[k].get_ylim()) for k in cur.ax}
+
+
+def test_curate_opens_on_full_extent_and_never_auto_zooms(tmp_path):
+    import matplotlib.pyplot as plt
+    gui, cur = _agg_curator(tmp_path)
+    # every view opens on the whole tomogram (the imshow extent)
+    for name in cur.ax:
+        x0, x1, y0, y1 = cur.img[name].get_extent()
+        assert cur.ax[name].get_xlim() == pytest.approx((x0, x1))
+        assert cur.ax[name].get_ylim() == pytest.approx((y0, y1))
+    full = _limits(cur)
+    cur.go_to(int(cur.surf.pieces[0]))
+    assert _limits(cur) == full  # highlighting a piece does not zoom
+    cur.set_pos([5, 5, 5])
+    assert _limits(cur) == full  # moving the slices does not zoom
+    plt.close("all")
+
+
+def test_curate_keeps_user_zoom_across_go_to(tmp_path):
+    import matplotlib.pyplot as plt
+    gui, cur = _agg_curator(tmp_path)
+    cur.ax["z"].set_xlim(2, 8)
+    cur.ax["z"].set_ylim(1, 7)
+    custom = _limits(cur)
+    cur.go_to(int(cur.surf.pieces[0]))
+    assert _limits(cur) == custom  # a user zoom survives highlighting another piece
+    cur.full_view()
+    x0, x1, y0, y1 = cur.img["z"].get_extent()
+    assert cur.ax["z"].get_xlim() == pytest.approx((x0, x1))  # Full view resets
+    plt.close("all")
+
+
+# ---------------------------------------------------------------------------
+# CLI: the new --bin / --gaussian options.
+# ---------------------------------------------------------------------------
+def test_curate_and_preview_help_show_bin_and_gaussian():
+    runner = CliRunner()
+    for sub in ("curate", "preview"):
+        out = runner.invoke(vtp_normals, [sub, "--help"]).output
+        assert "--bin" in out and "--gaussian" in out
+        assert "[default: 1" in out  # --bin default
+        assert "[default: 0.0]" in out  # --gaussian default
+
+
+def test_flip_help_has_no_bin_or_gaussian():
+    out = CliRunner().invoke(vtp_normals, ["flip", "--help"]).output
+    assert "--bin" not in out and "--gaussian" not in out
+
+
+def test_preview_bin_and_gaussian_writes_png(tmp_path):
+    import mrcfile
+    points, triangles = two_patches()
+    arrays = standard_arrays(cell_centres(points, triangles))
+    write_vtp(tmp_path / "foo_ts_001.vtp", points, triangles, arrays)
+    # a tomogram big enough to bin (surface spans ~0..105 voxels in x at coord_scale/apix ~ 1)
+    tomo = np.random.default_rng(5).random((20, 60, 120)).astype(np.float32)
+    (tmp_path / "tomo").mkdir()
+    with mrcfile.new(str(tmp_path / "tomo" / "foo_ts_001.mrc_9.98Apx.mrc"), overwrite=True) as m:
+        m.set_data(tomo)
+    res = CliRunner().invoke(vtp_normals, ["preview", "--vtp-glob", str(tmp_path / "*.vtp"),
+                                           "--tomo-dir", str(tmp_path / "tomo"),
+                                           "--tomo-pattern", "{stem}.mrc_9.98Apx.mrc",
+                                           "--split-dist", "0", "--min-triangles", "0",
+                                           "--bin", "2", "--gaussian", "20"])
+    assert res.exit_code == 0, res.output
+    assert (tmp_path / "foo_ts_001.normals.png").exists()
+
+
+def test_flip_output_independent_of_bin_and_gaussian(tmp_path):
+    # flip has no --bin/--gaussian; its output is driven only by core.flip_surface.
+    path, _ = _two_piece_vtp(tmp_path)
+    out = core.flip_surface(path, {0}, split_dist=0.0)
+    after, _ = read_cell_arrays(out)
+    assert after["normal_flipped"].astype(bool).sum() == 50
+
+
+# ---------------------------------------------------------------------------
 # Optional integration test on the real example (no large MRC loaded).
 # ---------------------------------------------------------------------------
 @pytest.mark.slow
